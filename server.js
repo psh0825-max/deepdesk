@@ -12,10 +12,11 @@ app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/reports', express.static(path.join(__dirname, 'reports')));
 
+// 런칭 프로모션가 (krwOrig/usdOrig = 정가, 랜딩에 병기)
 const TIERS = {
-  light: { krw: 9900, usd: 7, label: '라이트', pages: '5~8p', hours: 24 },
-  standard: { krw: 29000, usd: 19, label: '스탠다드', pages: '12~20p', hours: 48 },
-  deep: { krw: 59000, usd: 39, label: '딥', pages: '20p+', hours: 72 },
+  light: { krw: 4900, krwOrig: 9900, usd: 3.5, usdOrig: 7, label: '라이트', pages: 'A4 7~8쪽', hours: 24 },
+  standard: { krw: 14900, krwOrig: 29000, usd: 10, usdOrig: 19, label: '스탠다드', pages: 'A4 10~13쪽', hours: 48 },
+  deep: { krw: 29900, krwOrig: 59000, usd: 20, usdOrig: 39, label: '딥', pages: 'A4 15쪽+ · 차트 포함', hours: 72 },
 };
 
 // 랜딩에서 쓸 결제 안내/가격 정보

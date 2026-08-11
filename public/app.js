@@ -13,9 +13,9 @@ async function loadConfig() {
     cards.innerHTML = Object.entries(CONFIG.tiers)
       .map(([key, t]) => `
         <div class="card">
-          ${key === 'standard' ? '<span class="tag">인기</span>' : ''}
+          ${key === 'standard' ? '<span class="tag">인기</span> ' : ''}<span class="tag sale">런칭 50%</span>
           <h3>${t.label}</h3>
-          <div class="price">₩${t.krw.toLocaleString()} <small>/ $${t.usd} USDC</small></div>
+          <div class="price">₩${t.krw.toLocaleString()} <small><s>₩${t.krwOrig.toLocaleString()}</s> / $${t.usd} USDC</small></div>
           <p>${desc[key]}</p>
           <p>${t.pages} · ${t.hours}시간 내 발송</p>
         </div>`)
