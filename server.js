@@ -72,7 +72,8 @@ app.get('/api/pay/config', (req, res) => {
   res.json({ clientKey: process.env.TOSS_CLIENT_KEY || null, tossId: process.env.TOSS_ID || null });
 });
 
-app.get('/pay/:id', (req, res) => {
+app.get('/pay/:id', (req, res, next) => {
+  if (req.params.id === 'success' || req.params.id === 'fail') return next(); // 예약 경로는 아래 핸들러로
   res.sendFile(path.join(__dirname, 'public', 'pay.html'));
 });
 
