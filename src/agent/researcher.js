@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { appendProgress, updateOrder } from '../store.js';
+import { pay } from './wallet.js';
 
 const REPORTS_DIR = path.resolve('reports');
 
@@ -87,7 +88,24 @@ ${brief ? `Client brief: ${brief}` : ''}`,
       await updateOrder(id, { costs });
     }
 
-    // 3) 종합
+    // 3) 유료 데이터 단계 — 에이전트가 자기 지갑으로 직접 결제 (가드레일 내, 실패 시 무료 경로 폴백)
+    let payment = null;
+    const paid = await pay({
+      service: 'premium-data',
+      amountUsd: 0.1,
+      orderId: id,
+      memo: `premium data for order ${id}`,
+    });
+    if (paid.ok) {
+      payment = paid;
+      costs.paidApiUsd += paid.amountUsd;
+      await appendProgress(id, `유료 데이터 결제 — $${paid.amountUsd.toFixed(2)} USDC (tx ${paid.txHash ? paid.txHash.slice(0, 12) + '…' : paid.txId})`);
+      await updateOrder(id, { costs, lastPayment: { txHash: paid.txHash, explorerUrl: paid.explorerUrl } });
+    } else {
+      await appendProgress(id, `유료 데이터 생략 (${paid.reason}) — 무료 출처로 진행`);
+    }
+
+    // 4) 종합
     const synthesis = await generate(ai, {
       costs,
       prompt: `You are writing the final client-facing research report in ${lang}, in Markdown.
@@ -101,10 +119,10 @@ ${findings.map((f, i) => `## Sub-question ${i + 1}: ${f.question}\n${f.answer}`)
 Write a complete, well-structured report with: 제목, 요약(Executive Summary), 핵심 발견 사항(불릿), 각 주제별 상세 분석, 시사점 및 권고, 한계와 추가 조사 제안. Be specific and cite figures. Do not invent facts not present in the findings.`,
     });
 
-    // 4) 리포트 저장 (HTML)
+    // 5) 리포트 저장 (HTML)
     await fs.mkdir(REPORTS_DIR, { recursive: true });
     const uniqueSources = [...new Map(allSources.map((s) => [s.uri, s])).values()];
-    const html = renderReport({ topic, tier: spec.label, body: synthesis.text, sources: uniqueSources, costs });
+    const html = renderReport({ topic, tier: spec.label, body: synthesis.text, sources: uniqueSources, costs, payment });
     const reportPath = path.join(REPORTS_DIR, `${id}.html`);
     await fs.writeFile(reportPath, html);
 
@@ -154,7 +172,7 @@ function mdToHtml(md) {
   }
 }
 
-function renderReport({ topic, tier, body, sources, costs }) {
+function renderReport({ topic, tier, body, sources, costs, payment }) {
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -174,6 +192,6 @@ ${mdToHtml(body)}
 <div class="sources"><strong>참고 출처 (${sources.length})</strong><ul>
 ${sources.map((s) => `<li><a href="${esc(s.uri)}" target="_blank" rel="noopener">${esc(s.title)}</a></li>`).join('\n')}
 </ul></div>
-<footer>이 리포트는 DeepDesk AI 리서치 에이전트가 작성했습니다. 리서치 원가: LLM 토큰 ${costs.llmTokens.toLocaleString()}개 · 유료 데이터 $${costs.paidApiUsd.toFixed(2)}</footer>
+<footer>이 리포트는 DeepDesk AI 리서치 에이전트가 작성했습니다. 리서치 원가: LLM 토큰 ${costs.llmTokens.toLocaleString()}개 · 유료 데이터 $${costs.paidApiUsd.toFixed(2)}${payment?.explorerUrl ? ` (<a href="${esc(payment.explorerUrl)}" target="_blank" rel="noopener">에이전트 결제 트랜잭션 보기</a>)` : ''}</footer>
 </body></html>`;
 }
