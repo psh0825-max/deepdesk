@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.8.0",
+    "@google-cloud/firestore": "^8.7.1",
     "@google/genai": "^1.0.0",
-    "express": "^4.21.0"
+    "express": "^4.21.0",
+    "nodemailer": "^9.0.5"
   }
 }

@@ -4,80 +4,88 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DeepDesk — 스스로 결제하는 AI 리서치 데스크</title>
-<meta name="description" content="주제만 던지면 AI 리서치 에이전트가 수십 개 출처를 조사해 전문가급 리포트를 보내드립니다. 라이트 9,900원부터.">
+<meta name="description" content="주제만 던지면 AI 리서치 에이전트가 수십 개 출처를 조사해 전문가급 리포트를 보내드립니다. 런칭가 4,900원부터.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
   <div class="logo">Deep<span>Desk</span></div>
-  <a class="cta-small" href="#order">의뢰하기</a>
+  <div class="nav-right">
+    <button id="lang-btn" class="lang" type="button">EN</button>
+    <a class="cta-small" href="#order" data-i18n="nav_cta">의뢰하기</a>
+  </div>
 </header>
 
 <main>
   <section class="hero">
-    <h1>궁금한 건 뭐든,<br>AI 애널리스트가 <em>조사해서 보고</em>합니다</h1>
-    <p class="sub">주제만 던지세요. DeepDesk의 리서치 에이전트가 수십 개 출처를 검증하며 조사하고,<br>
-    전문가급 리포트를 <strong>24시간 안에</strong> 이메일로 보내드립니다.</p>
-    <a class="cta" href="#order">지금 의뢰하기 — 런칭가 4,900원부터</a>
-    <p class="note">시장조사 · 경쟁사 분석 · 창업 아이템 검증 · 구매 전 비교 · 투자 전 실사 · 학술 배경조사</p>
+    <h1 data-i18n="hero_h1">궁금한 건 뭐든,<br>AI 애널리스트가 <em>조사해서 보고</em>합니다</h1>
+    <p class="sub" data-i18n="hero_sub">주제만 던지세요. DeepDesk의 리서치 에이전트가 수십 개 출처를 검증하며 조사하고,<br>전문가급 리포트를 <strong>24시간 안에</strong> 이메일로 보내드립니다.</p>
+    <a class="cta" href="#order" data-i18n="hero_cta">지금 의뢰하기 — 런칭가 4,900원부터</a>
+    <p class="note" data-i18n="hero_note">시장조사 · 경쟁사 분석 · 창업 아이템 검증 · 구매 전 비교 · 투자 전 실사 · 학술 배경조사</p>
   </section>
 
   <section class="how">
-    <h2>사람이 아니라, <em>지갑을 가진 에이전트</em>가 일합니다</h2>
+    <h2 data-i18n="how_h2">사람이 아니라, <em>지갑을 가진 에이전트</em>가 일합니다</h2>
     <div class="cards">
-      <div class="card"><div class="num">1</div><h3>의뢰 접수</h3><p>주제와 요구사항을 적으면 에이전트가 조사 계획을 세웁니다.</p></div>
-      <div class="card"><div class="num">2</div><h3>자율 조사</h3><p>세부 질문별로 웹을 검색·교차검증합니다. 유료 데이터가 필요하면 <strong>에이전트가 자기 USDC 지갑으로 직접 결제</strong>합니다 (지출 한도·허용목록 내에서만).</p></div>
-      <div class="card"><div class="num">3</div><h3>리포트 발송</h3><p>요약·핵심 발견·상세 분석·출처까지 갖춘 리포트가 이메일로 도착합니다.</p></div>
+      <div class="card"><div class="num">1</div><h3 data-i18n="how_1t">의뢰 접수</h3><p data-i18n="how_1p">주제와 요구사항을 적으면 에이전트가 조사 계획을 세웁니다.</p></div>
+      <div class="card"><div class="num">2</div><h3 data-i18n="how_2t">자율 조사</h3><p data-i18n="how_2p">세부 질문별로 웹을 검색·교차검증합니다. 유료 데이터가 필요하면 <strong>에이전트가 자기 USDC 지갑으로 직접 결제</strong>합니다 (지출 한도·허용목록 내에서만).</p></div>
+      <div class="card"><div class="num">3</div><h3 data-i18n="how_3t">리포트 발송</h3><p data-i18n="how_3p">요약·핵심 지표 카드·차트·출처까지 갖춘 리포트가 이메일로 도착합니다.</p></div>
     </div>
   </section>
 
   <section class="pricing" id="pricing">
-    <h2>요금</h2>
+    <h2 data-i18n="pricing_h2">요금</h2>
     <div class="cards" id="tier-cards"><!-- app.js가 채움 --></div>
-    <p class="note">결제 확인 후 조사가 시작됩니다. 결과가 기대에 못 미치면 1회 무상 보완.</p>
+    <p class="note" data-i18n="pricing_note">결제 확인 후 조사가 시작됩니다. 결과가 기대에 못 미치면 1회 무상 보완.</p>
   </section>
 
   <section class="order" id="order">
-    <h2>의뢰하기</h2>
+    <h2 data-i18n="order_h2">의뢰하기</h2>
     <form id="order-form">
-      <label>조사 주제 *<input name="topic" required minlength="5" maxlength="300" placeholder="예: 2026년 국내 무인 사진관 시장 규모와 주요 업체 비교"></label>
-      <label>상세 요구사항 (선택)<textarea name="brief" maxlength="2000" rows="4" placeholder="알고 싶은 것, 용도, 꼭 포함할 항목 등"></textarea></label>
+      <label><span data-i18n="f_topic">조사 주제 *</span><input name="topic" required minlength="5" maxlength="300" data-i18n-ph="f_topic_ph" placeholder="예: 2026년 국내 무인 사진관 시장 규모와 주요 업체 비교"></label>
+      <label><span data-i18n="f_brief">상세 요구사항 (선택)</span><textarea name="brief" maxlength="2000" rows="4" data-i18n-ph="f_brief_ph" placeholder="알고 싶은 것, 용도, 꼭 포함할 항목 등"></textarea></label>
       <div class="row">
-        <label>요금제 *
-          <select name="tier" required>
-            <option value="light">라이트 — 4,900원 (A4 7~8쪽)</option>
-            <option value="standard">스탠다드 — 14,900원 (A4 10~13쪽)</option>
-            <option value="deep">딥 — 29,900원 (A4 15쪽+, 차트 포함)</option>
-          </select>
+        <label><span data-i18n="f_tier">요금제 *</span>
+          <select name="tier" required id="tier-select"></select>
         </label>
-        <label>리포트 언어
+        <label><span data-i18n="f_lang">리포트 언어</span>
           <select name="language"><option value="ko">한국어</option><option value="en">English</option></select>
         </label>
       </div>
       <div class="row">
-        <label>받을 이메일 *<input name="email" type="email" required placeholder="you@example.com"></label>
-        <label>결제 방법
-          <select name="payMethod"><option value="toss">카드·간편결제</option><option value="paypal">PayPal</option><option value="usdc">USDC</option></select>
+        <label><span data-i18n="f_email">받을 이메일 *</span><input name="email" type="email" required placeholder="you@example.com"></label>
+        <label><span data-i18n="f_pay">결제 방법</span>
+          <select name="payMethod" id="pay-select"></select>
         </label>
       </div>
-      <button type="submit">의뢰 접수</button>
+      <button type="submit" data-i18n="f_submit">의뢰 접수</button>
     </form>
     <div id="order-result" hidden></div>
   </section>
 
   <section class="status">
-    <h2>주문 조회</h2>
+    <h2 data-i18n="st_h2">주문 조회</h2>
     <div class="row">
-      <input id="status-id" placeholder="주문번호 (예: 3f2a9c1b)">
-      <button id="status-btn" type="button">조회</button>
+      <input id="status-id" data-i18n-ph="st_ph" placeholder="주문번호 (예: 3f2a9c1b)">
+      <button id="status-btn" type="button" data-i18n="st_btn">조회</button>
     </div>
     <div id="status-result" hidden></div>
+  </section>
+
+  <section class="faq">
+    <h2>FAQ</h2>
+    <details><summary data-i18n="faq_1q">얼마나 걸리나요?</summary><p data-i18n="faq_1a">라이트는 보통 몇 시간 안에, 늦어도 24시간 안에 발송됩니다. 스탠다드 48시간, 딥 72시간이 최대 기한이며 대부분 훨씬 빠릅니다.</p></details>
+    <details><summary data-i18n="faq_2q">품질이 마음에 안 들면요?</summary><p data-i18n="faq_2a">의뢰 취지와 다르면 1회 무상 보완해 드립니다. 조사 시작 전에는 전액 환불됩니다. 자세한 기준은 이용약관을 참고하세요.</p></details>
+    <details><summary data-i18n="faq_3q">출처는 믿을 수 있나요?</summary><p data-i18n="faq_3a">리포트 하단에 참고한 모든 출처 링크(보통 수십~수백 건)를 그대로 공개합니다. 수치에는 연도를 함께 표기하고, 확인이 어려운 내용은 "확인 필요"로 표시합니다.</p></details>
+    <details><summary data-i18n="faq_4q">영어 리포트도 되나요?</summary><p data-i18n="faq_4a">네. 주문 시 리포트 언어를 English로 선택하면 됩니다.</p></details>
+    <details><summary data-i18n="faq_5q">에이전트가 결제한다는 게 무슨 뜻인가요?</summary><p data-i18n="faq_5a">조사에 유료 데이터가 필요하면 AI 에이전트가 자기 USDC 지갑에서 직접 결제합니다. 지출 한도와 허용목록 안에서만 결제할 수 있고, 모든 결제는 블록체인에 공개 기록되어 리포트 하단에서 확인할 수 있습니다.</p></details>
   </section>
 </main>
 
 <footer>
   <p>DeepDesk — AI research desk that pays its own way.</p>
-  <p class="fine">Gemini 기반 리서치 에이전트 · Google Cloud에서 운영 · 에이전트 지갑은 Circle USDC (지출 한도·허용목록 적용)</p>
+  <p class="fine" data-i18n="ft_stack">Gemini 기반 리서치 에이전트 · Google Cloud에서 운영 · 에이전트 지갑은 Circle USDC (지출 한도·허용목록 적용)</p>
+  <p class="fine"><a href="/terms.html" data-i18n="ft_terms">이용약관·환불규정</a> · <a href="/privacy.html" data-i18n="ft_privacy">개인정보처리방침</a> · <span data-i18n="ft_contact">문의: psh0825@gmail.com</span></p>
 </footer>
 <script src="app.js"></script>
 </body>

@@ -1,48 +1,70 @@
-// DeepDesk 리서치 에이전트 파이프라인
-// 계획(plan) → 조사(gather, Google 검색 그라운딩) → 종합(synthesize) → 리포트 저장
-// 각 단계 진행상황과 비용(토큰/유료API)을 주문 레코드에 기록한다.
+// DeepDesk 리서치 에이전트 파이프라인 (전문가급)
+// 계획(pro) → 조사(flash × N, 검색 그라운딩) → 유료 데이터 결제 → 종합(pro, 딥은 2부 구성)
+// → 레드팀 검증(pro) → 시각화 추출 → 리포트 저장
 import { GoogleGenAI } from '@google/genai';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import { appendProgress, updateOrder } from '../store.js';
+import { appendProgress, updateOrder, saveReport } from '../store.js';
 import { pay } from './wallet.js';
 
-const REPORTS_DIR = path.resolve('reports');
-
 const TIER_SPEC = {
-  light: { subQuestions: 4, label: '라이트' },
-  standard: { subQuestions: 7, label: '스탠다드' },
-  deep: { subQuestions: 10, label: '딥' },
+  light: { subQuestions: 4, label: '라이트', verify: false, twoPart: false },
+  standard: { subQuestions: 7, label: '스탠다드', verify: true, twoPart: false },
+  deep: { subQuestions: 10, label: '딥', verify: true, twoPart: true },
 };
+
+const MODEL_FAST = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL_PRO = () => process.env.GEMINI_MODEL_PRO || 'gemini-2.5-pro';
+
+const ANALYST_RULES = `당신은 톱티어 전략컨설팅펌의 시니어 리서치 애널리스트다. 절대 규칙:
+- 모든 수치에는 연도·맥락을 붙인다. 출처 간 수치가 상충하면 병기하고 차이를 설명한다.
+- 사실(확인된 데이터) / 추정(계산·해석) / 전망(예측)을 구분해 서술한다.
+- 일반론과 미사여구를 금지한다. 회사명·제품명·금액·날짜 등 구체 정보만 가치가 있다.
+- 확인 불가한 내용은 "확인 필요"로 표시한다. 수치를 지어내지 않는다.`;
 
 function client() {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY가 설정되지 않았습니다 (.env 참고)');
-  }
+  if (!apiKey) throw new Error('GEMINI_API_KEY가 설정되지 않았습니다 (.env 참고)');
   const vertexai = process.env.GEMINI_USE_VERTEX === '1';
   return new GoogleGenAI({ vertexai, apiKey });
 }
 
-const MODEL = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// 일시적 오류(429/5xx/네트워크)는 백오프 재시도
+async function withRetry(fn) {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e?.message || e);
+      const transient = /429|500|502|503|504|UNAVAILABLE|RESOURCE_EXHAUSTED|INTERNAL|fetch failed|ECONNRESET|socket|timeout/i.test(msg);
+      if (!transient || i === 2) throw e;
+      await new Promise((r) => setTimeout(r, (i + 1) * 5000));
+    }
+  }
+  throw lastErr;
+}
 
 function addUsage(costs, response) {
   const u = response.usageMetadata;
   if (u) costs.llmTokens += (u.promptTokenCount || 0) + (u.candidatesTokenCount || 0);
 }
 
-async function generate(ai, { prompt, useSearch, costs }) {
-  const response = await ai.models.generateContent({
-    model: MODEL(),
+async function generate(ai, { model, prompt, useSearch, costs, maxTokens }) {
+  const response = await withRetry(() => ai.models.generateContent({
+    model: model || MODEL_FAST(),
     contents: prompt,
-    config: useSearch ? { tools: [{ googleSearch: {} }] } : undefined,
-  });
+    config: {
+      ...(useSearch ? { tools: [{ googleSearch: {} }] } : {}),
+      ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
+    },
+  }));
   addUsage(costs, response);
   const sources = [];
   const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
   for (const c of chunks) {
     if (c.web?.uri) sources.push({ title: c.web.title || c.web.uri, uri: c.web.uri });
   }
+  if (!response.text) throw new Error('모델 응답이 비어 있습니다');
   return { text: response.text, sources };
 }
 
@@ -55,15 +77,20 @@ export async function runResearch(order) {
 
   try {
     await updateOrder(id, { status: 'running' });
-    await appendProgress(id, `조사 시작 (${spec.label} 티어, ${spec.subQuestions}개 세부 질문)`);
+    await appendProgress(id, `조사 시작 (${spec.label} 티어, 세부 질문 ${spec.subQuestions}개)`);
 
-    // 1) 계획
+    // 1) 계획 (pro) — MECE 세부 질문
     const plan = await generate(ai, {
+      model: MODEL_PRO(),
       costs,
-      prompt: `You are a professional research analyst. Break the following research request into exactly ${spec.subQuestions} focused sub-questions that together fully cover the topic. Answer as a numbered list only, in ${lang}.
+      prompt: `${ANALYST_RULES}
 
-Topic: ${topic}
-${brief ? `Client brief: ${brief}` : ''}`,
+다음 리서치 의뢰를 상호배타적·전체포괄(MECE)하게 커버하는 세부 질문 정확히 ${spec.subQuestions}개로 분해하라.
+반드시 포함할 관점: 시장 규모·성장률(정량), 경쟁 구도·주요 사업자, 가격·수익 구조, 규제·리스크, 최신 동향(2024~2026), 고객·수요 측면.
+번호 목록만 ${lang}로 출력하라.
+
+의뢰 주제: ${topic}
+${brief ? `클라이언트 요구사항: ${brief}` : ''}`,
     });
     const subQuestions = plan.text
       .split('\n')
@@ -72,7 +99,7 @@ ${brief ? `Client brief: ${brief}` : ''}`,
       .slice(0, spec.subQuestions);
     await appendProgress(id, `조사 계획 수립: ${subQuestions.length}개 세부 질문`);
 
-    // 2) 조사 (검색 그라운딩)
+    // 2) 조사 (flash × N, 검색 그라운딩)
     const findings = [];
     const allSources = [];
     for (let i = 0; i < subQuestions.length; i++) {
@@ -80,7 +107,14 @@ ${brief ? `Client brief: ${brief}` : ''}`,
       const r = await generate(ai, {
         costs,
         useSearch: true,
-        prompt: `Research the following question thoroughly using current web information. Write a dense, factual summary in ${lang} (300-500 words) with concrete figures, dates, and names where available. Question: ${q}`,
+        prompt: `${ANALYST_RULES}
+
+다음 질문을 최신 웹 정보로 철저히 조사하라. ${lang}로 400~700단어의 밀도 높은 사실 요약을 작성하라.
+- 2024~2026년 최신 자료를 우선한다. 수치마다 연도를 명시한다.
+- 구체적 기업명·제품명·금액·통계를 담는다.
+- 통설과 반대되는 근거나 리스크 신호도 찾아 포함한다.
+
+질문: ${q}`,
       });
       findings.push({ question: q, answer: r.text, sources: r.sources });
       allSources.push(...r.sources);
@@ -88,7 +122,7 @@ ${brief ? `Client brief: ${brief}` : ''}`,
       await updateOrder(id, { costs });
     }
 
-    // 3) 유료 데이터 단계 — 에이전트가 자기 지갑으로 직접 결제 (가드레일 내, 실패 시 무료 경로 폴백)
+    // 3) 유료 데이터 결제 — 에이전트가 자기 지갑으로 직접 결제 (가드레일 내, 실패 시 무료 경로 폴백)
     let payment = null;
     const paid = await pay({
       service: 'premium-data',
@@ -105,21 +139,103 @@ ${brief ? `Client brief: ${brief}` : ''}`,
       await appendProgress(id, `유료 데이터 생략 (${paid.reason}) — 무료 출처로 진행`);
     }
 
-    // 4) 종합
-    const synthesis = await generate(ai, {
-      costs,
-      prompt: `You are writing the final client-facing research report in ${lang}, in Markdown.
+    // 4) 종합 (pro) — 딥은 2부 구성으로 분량·깊이 확보
+    const findingsBlock = findings
+      .map((f, i) => `## 조사 ${i + 1}: ${f.question}\n${f.answer}`)
+      .join('\n\n');
+    const baseCtx = `${ANALYST_RULES}
 
-Topic: ${topic}
-${brief ? `Client brief: ${brief}` : ''}
+의뢰 주제: ${topic}
+${brief ? `클라이언트 요구사항: ${brief}` : ''}
 
-Findings from research team:
-${findings.map((f, i) => `## Sub-question ${i + 1}: ${f.question}\n${f.answer}`).join('\n\n')}
+리서치팀 조사 결과:
+${findingsBlock}
 
-Write a complete, well-structured report with: 제목, 요약(Executive Summary), 핵심 발견 사항(불릿), 각 주제별 상세 분석, 시사점 및 권고, 한계와 추가 조사 제안. Be specific and cite figures. Do not invent facts not present in the findings.`,
-    });
+작성 규칙: ${lang}, Markdown. 조사 결과에 없는 수치는 만들지 않는다. 비교·나열 데이터는 반드시 Markdown 표(|)로 정리한다. 문장은 단정적으로, 근거는 병기한다.`;
 
-    // 5) 시각화 데이터 추출 — 리포트에 등장한 수치만 사용 (창작 금지)
+    let body;
+    if (spec.twoPart) {
+      await appendProgress(id, '리포트 작성 1/2 (요약·시장 분석)');
+      const partA = await generate(ai, {
+        model: MODEL_PRO(),
+        costs,
+        maxTokens: 32768,
+        prompt: `${baseCtx}
+
+리포트 전반부를 작성하라. 구성:
+# (리포트 제목)
+**3줄 핵심 요약** (의사결정자가 이것만 읽어도 되게)
+## 요약 (Executive Summary) — 4~6문단
+## 핵심 발견 사항 — 정량 수치 중심 불릿 7~10개
+## 시장 개관과 구조 — 규모·성장률·세그먼트·밸류체인, 표 1개 이상 포함`,
+      });
+      await appendProgress(id, '리포트 작성 2/2 (심층 분석·권고)');
+      const partB = await generate(ai, {
+        model: MODEL_PRO(),
+        costs,
+        maxTokens: 32768,
+        prompt: `${baseCtx}
+
+리포트 전반부(이미 작성됨):
+${partA.text.slice(0, 4000)}
+…(중략)
+
+이어지는 후반부를 작성하라. 전반부와 중복하지 말 것. 구성:
+## 심층 분석 — 주제별 소제목으로 나눠 구체적으로 (경쟁사·사업자 비교 표 포함)
+## 리스크와 반론 — 낙관론에 대한 반대 근거 포함
+## 시나리오 — 낙관/기본/비관 3개, 각 시나리오의 트리거 조건 명시
+## 실행 권고 — 0~3개월 / 3~12개월로 나눠 우선순위와 함께
+## 한계와 추가 조사 제안`,
+      });
+      body = `${partA.text}\n\n${partB.text}`;
+    } else {
+      const single = await generate(ai, {
+        model: MODEL_PRO(),
+        costs,
+        maxTokens: 32768,
+        prompt: `${baseCtx}
+
+완결된 클라이언트 리포트를 작성하라. 구성:
+# (리포트 제목)
+**3줄 핵심 요약**
+## 요약 (Executive Summary)
+## 핵심 발견 사항 — 정량 수치 중심 불릿
+## 상세 분석 — 주제별 소제목, 비교 데이터는 표로
+## 리스크와 반론
+## 실행 권고 — 우선순위 포함
+## 한계와 추가 조사 제안`,
+      });
+      body = single.text;
+    }
+    await updateOrder(id, { costs });
+
+    // 5) 레드팀 검증 (pro) — 근거 없는 단정·수치 모순·구조 결함을 잡아 수정본 출력
+    if (spec.verify) {
+      await appendProgress(id, '품질 검증 (레드팀 리뷰)');
+      const verified = await generate(ai, {
+        model: MODEL_PRO(),
+        costs,
+        maxTokens: 32768,
+        prompt: `${ANALYST_RULES}
+
+아래는 조사 결과와 리포트 초안이다. 초안을 검증하고 수정하라:
+1) 조사 결과에 근거가 없는 단정·수치 → 삭제하거나 "확인 필요" 표시
+2) 수치 모순·단위 오류 → 조사 결과 기준으로 수정
+3) 중복 문단 → 통합
+4) 표·소제목 구조 유지, 분량은 유지하거나 보강 (절대 요약하지 말 것)
+수정이 반영된 완성본 전체를 Markdown으로만 출력하라. 다른 말은 하지 마라.
+
+[조사 결과]
+${findingsBlock.slice(0, 30000)}
+
+[리포트 초안]
+${body}`,
+      });
+      if (verified.text.length > body.length * 0.7) body = verified.text; // 과도 요약 방어
+      await updateOrder(id, { costs });
+    }
+
+    // 6) 시각화 데이터 추출 — 리포트에 등장한 수치만 사용 (창작 금지)
     let visuals = null;
     try {
       const vres = await generate(ai, {
@@ -137,7 +253,7 @@ Write a complete, well-structured report with: 제목, 요약(Executive Summary)
 - 차트로 만들 수치가 부족하면 개수를 줄여라. JSON 외 텍스트 출력 금지.
 
 리포트:
-${synthesis.text}`,
+${body.slice(0, 40000)}`,
       });
       visuals = parseVisuals(vres.text);
       await appendProgress(id, `시각화 생성 — 핵심지표 ${visuals?.stats?.length || 0}개, 차트 ${visuals?.charts?.length || 0}개`);
@@ -145,15 +261,13 @@ ${synthesis.text}`,
       await appendProgress(id, `시각화 추출 생략 (${e.message})`);
     }
 
-    // 6) 리포트 저장 (HTML)
-    await fs.mkdir(REPORTS_DIR, { recursive: true });
+    // 7) 리포트 저장
     const uniqueSources = [...new Map(allSources.map((s) => [s.uri, s])).values()];
-    const html = renderReport({ topic, tier: spec.label, body: synthesis.text, sources: uniqueSources, costs, payment, visuals });
-    const reportPath = path.join(REPORTS_DIR, `${id}.html`);
-    await fs.writeFile(reportPath, html);
+    const html = renderReport({ topic, tier: spec.label, body, sources: uniqueSources, costs, payment, visuals });
+    await saveReport(id, html);
 
     await updateOrder(id, { status: 'done', reportPath: `/reports/${id}.html`, costs });
-    await appendProgress(id, `리포트 완성 — 출처 ${uniqueSources.length}건, LLM 토큰 ${costs.llmTokens.toLocaleString()}개 사용`);
+    await appendProgress(id, `리포트 완성 — 본문 ${body.length.toLocaleString()}자, 출처 ${uniqueSources.length}건, LLM 토큰 ${costs.llmTokens.toLocaleString()}개`);
     return { ok: true, reportPath: `/reports/${id}.html` };
   } catch (err) {
     await updateOrder(id, { status: 'failed', costs });
@@ -411,6 +525,7 @@ th{background:#f1f5f9}
 td{font-variant-numeric:tabular-nums}
 .sources{background:#f1f5f9;border-radius:12px;padding:20px 28px;margin-top:3em;font-size:.9rem}
 footer{margin-top:4em;color:#94a3b8;font-size:.85rem;border-top:1px solid #e2e8f0;padding-top:16px}
+@media print{.viz,.chart{break-inside:avoid}}
 </style></head><body>
 <div class="meta">DeepDesk 리서치 리포트 · ${esc(tier)} 티어 · ${new Date().toISOString().slice(0, 10)}</div>
 ${bodyHtml}

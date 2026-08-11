@@ -25,6 +25,13 @@ h2 em{font-style:normal;color:var(--blue)}
 .tag{display:inline-block;background:#dbeafe;color:var(--blue-d);border-radius:6px;padding:2px 8px;font-size:.78rem;font-weight:600;margin-bottom:8px}
 .tag.sale{background:#fee2e2;color:#b91c1c}
 .price s{color:var(--mut);font-weight:400;font-size:.85rem}
+.nav-right{display:flex;gap:10px;align-items:center}
+.lang{background:none;border:1px solid var(--line);color:var(--mut);padding:7px 12px;border-radius:8px;font-size:.85rem;font-weight:600}
+.lang:hover{background:var(--bg);color:var(--ink)}
+.faq details{border-bottom:1px solid var(--line);padding:14px 4px}
+.faq summary{font-weight:600;cursor:pointer}
+.faq p{color:var(--mut);margin-top:10px;font-size:.94rem}
+.spin{color:var(--mut);font-size:.8rem;font-weight:400}
 form{display:flex;flex-direction:column;gap:16px;max-width:640px}
 label{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:.92rem;flex:1}
 input,select,textarea{padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:1rem;font-family:inherit}

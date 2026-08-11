@@ -1,13 +1,11 @@
 // 에이전트 지갑 계층.
 // CIRCLE_* 환경변수가 있으면 실제 Circle Developer-Controlled Wallet(USDC, 테스트넷)로 결제하고,
 // 없으면 모의 원장으로 동작한다. 두 경로 모두 동일한 지출 가드레일을 통과해야 한다.
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
+// 원장은 store 계층(Firestore/파일)에 영속 기록된다.
 import crypto from 'node:crypto';
+import { addLedgerEntry, getLedgerEntries } from '../store.js';
 
-const LEDGER_FILE = path.resolve('data', 'ledger.json');
-
-// 지출 가드레일: 1회/주문당/일일 한도 + 서비스 허용목록 (+시간제한은 주문 수명으로 갈음)
+// 지출 가드레일: 1회/주문당/일일 한도 + 서비스 허용목록
 const LIMITS = {
   perCallMaxUsd: 0.5,
   perOrderMaxUsd: 2.0,
@@ -15,7 +13,6 @@ const LIMITS = {
 };
 
 // 에이전트가 결제할 수 있는 서비스 목록 — 목록 밖 결제는 무조건 거부
-// (지금은 유료 데이터 제공자 역할의 자체 지갑 하나. 실제 외부 유료 API 추가 시 여기 등록)
 const SERVICES = {
   'premium-data': {
     label: 'Premium data source',
@@ -28,19 +25,6 @@ const EXPLORERS = {
   'ETH-SEPOLIA': (tx) => `https://sepolia.etherscan.io/tx/${tx}`,
 };
 
-async function loadLedger() {
-  try {
-    return JSON.parse(await fs.readFile(LEDGER_FILE, 'utf8'));
-  } catch {
-    return [];
-  }
-}
-
-async function saveLedger(entries) {
-  await fs.mkdir(path.dirname(LEDGER_FILE), { recursive: true });
-  await fs.writeFile(LEDGER_FILE, JSON.stringify(entries, null, 2));
-}
-
 export function getAddress() {
   return process.env.USDC_ADDRESS || null;
 }
@@ -51,13 +35,13 @@ function circleConfigured() {
 
 export async function getSpentToday() {
   const today = new Date().toISOString().slice(0, 10);
-  return (await loadLedger())
+  return (await getLedgerEntries())
     .filter((e) => e.at.startsWith(today))
     .reduce((sum, e) => sum + e.amountUsd, 0);
 }
 
 export async function getSpentForOrder(orderId) {
-  return (await loadLedger())
+  return (await getLedgerEntries())
     .filter((e) => e.orderId === orderId)
     .reduce((sum, e) => sum + e.amountUsd, 0);
 }
@@ -139,7 +123,7 @@ export async function pay({ service, amountUsd, orderId, memo }) {
       memo: memo || '',
       at: new Date().toISOString(),
       chain,
-      explorerUrl: EXPLORERS[chain] ? EXPLORERS[chain](res.txHash) : null,
+      explorerUrl: EXPLORERS[chain] && res.txHash ? EXPLORERS[chain](res.txHash) : null,
     };
   } else {
     entry = {
@@ -155,12 +139,10 @@ export async function pay({ service, amountUsd, orderId, memo }) {
     };
   }
 
-  const ledger = await loadLedger();
-  ledger.push(entry);
-  await saveLedger(ledger);
+  await addLedgerEntry(entry);
   return { ok: true, ...entry };
 }
 
 export async function getLedger() {
-  return loadLedger();
+  return getLedgerEntries();
 }
