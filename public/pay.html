@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>결제 — DeepDesk</title>
+<link rel="stylesheet" href="/style.css">
+<script src="https://js.tosspayments.com/v2/standard"></script>
+<style>
+.paybox{max-width:640px;margin:40px auto;padding:0 20px}
+.order-summary{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:20px 24px;margin-bottom:20px}
+.order-summary .t{font-weight:700;margin-bottom:4px}
+.order-summary .amt{font-size:1.5rem;font-weight:800;color:var(--blue-d);margin-top:8px}
+#pay-btn{width:100%;margin-top:16px;font-size:1.1rem;padding:15px}
+.fallback{background:#fef9c3;border:1px solid #fde047;border-radius:12px;padding:18px 20px;line-height:1.7}
+</style>
+</head>
+<body>
+<header><div class="logo">Deep<span>Desk</span></div><a class="cta-small" href="/">홈으로</a></header>
+<main class="paybox">
+  <h2>주문 결제</h2>
+  <div class="order-summary" id="summary">주문 정보를 불러오는 중…</div>
+  <div id="payment-method"></div>
+  <div id="agreement"></div>
+  <button id="pay-btn" hidden>결제하기</button>
+  <div id="fallback" class="fallback" hidden></div>
+</main>
+<script>
+(async () => {
+  const id = location.pathname.split('/').pop();
+  const summary = document.getElementById('summary');
+  const btn = document.getElementById('pay-btn');
+  const fallback = document.getElementById('fallback');
+  try {
+    const [cfg, order] = await Promise.all([
+      fetch('/api/pay/config').then((r) => r.json()),
+      fetch('/api/orders/' + id).then((r) => { if (!r.ok) throw new Error('주문을 찾을 수 없습니다'); return r.json(); }),
+    ]);
+    summary.innerHTML = '<div class="t">' + order.topic + '</div>'
+      + '<div>' + order.tierLabel + ' 티어 · 주문번호 ' + order.id + '</div>'
+      + '<div class="amt">₩' + order.price.toLocaleString() + '</div>';
+    if (order.status !== 'awaiting_payment') {
+      fallback.hidden = false;
+      fallback.textContent = '이미 결제가 완료된 주문입니다. 홈의 주문 조회에서 진행상황을 확인하세요.';
+      return;
+    }
+    if (!cfg.clientKey) {
+      fallback.hidden = false;
+      fallback.innerHTML = '카드결제 준비 중입니다. 토스 앱에서 <strong>' + (cfg.tossId ? '토스아이디 ' + cfg.tossId : '안내된 계좌') + '</strong>로 ₩'
+        + order.price.toLocaleString() + '을 보내주시면 확인 후 조사가 시작됩니다.';
+      return;
+    }
+    const tossPayments = TossPayments(cfg.clientKey);
+    const widgets = tossPayments.widgets({ customerKey: TossPayments.ANONYMOUS });
+    await widgets.setAmount({ currency: 'KRW', value: order.price });
+    await Promise.all([
+      widgets.renderPaymentMethods({ selector: '#payment-method' }),
+      widgets.renderAgreement({ selector: '#agreement' }),
+    ]);
+    btn.hidden = false;
+    btn.addEventListener('click', () => widgets.requestPayment({
+      orderId: 'dd-' + order.id,
+      orderName: 'DeepDesk ' + order.tierLabel + ' 리서치 리포트',
+      successUrl: location.origin + '/pay/success',
+      failUrl: location.origin + '/pay/fail',
+    }).catch((e) => { if (e.code !== 'USER_CANCEL') alert(e.message); }));
+  } catch (e) {
+    summary.textContent = '⚠️ ' + e.message;
+  }
+})();
+</script>
+</body>
+</html>

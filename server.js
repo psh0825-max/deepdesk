@@ -54,12 +54,64 @@ app.post('/api/orders', async (req, res) => {
   res.json({ id: order.id, status: order.status });
 });
 
-// 주문 상태 조회 (고객용 — 이메일 일치 시에만 상세)
+// 주문 상태 조회 (고객용)
 app.get('/api/orders/:id', async (req, res) => {
   const order = await getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: '주문을 찾을 수 없습니다.' });
   const { id, status, tier, createdAt, progress, reportPath, topic } = order;
-  res.json({ id, status, tier, createdAt, topic, reportPath, progress: progress.slice(-5) });
+  const t = TIERS[tier];
+  res.json({
+    id, status, tier, createdAt, topic, reportPath,
+    tierLabel: t?.label, price: t?.krw,
+    progress: progress.slice(-5),
+  });
+});
+
+// ---- 토스페이먼츠 (카드/간편결제, 자동 승인 → 자동 실행) ----
+app.get('/api/pay/config', (req, res) => {
+  res.json({ clientKey: process.env.TOSS_CLIENT_KEY || null, tossId: process.env.TOSS_ID || null });
+});
+
+app.get('/pay/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'pay.html'));
+});
+
+function payResultHtml(ok, msg, id) {
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${ok ? '결제 완료' : '결제 실패'} — DeepDesk</title><style>body{font-family:'Segoe UI',Pretendard,sans-serif;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0}main{text-align:center;padding:24px;max-width:440px}h1{font-size:3rem;margin:0}p{color:#475569;line-height:1.7}.oid{font-family:Consolas,monospace;font-weight:700;color:#1d4ed8}a{display:inline-block;margin-top:16px;background:#2563eb;color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:700}</style></head><body><main><h1>${ok ? '✅' : '⚠️'}</h1><p>${msg}</p>${id ? `<p>주문번호: <span class="oid">${id}</span></p>` : ''}<a href="/">홈으로 — 주문 조회에서 진행상황 확인</a></main></body></html>`;
+}
+
+app.get('/pay/success', async (req, res) => {
+  const { paymentKey, orderId, amount } = req.query;
+  const id = String(orderId || '').replace(/^dd-/, '');
+  const order = await getOrder(id);
+  const expected = TIERS[order?.tier]?.krw;
+  if (!order || !paymentKey || Number(amount) !== expected) {
+    return res.status(400).send(payResultHtml(false, '결제 정보가 주문과 일치하지 않습니다. 결제는 승인되지 않았으니 다시 시도해 주세요.', id));
+  }
+  if (order.status === 'awaiting_payment') {
+    if (!process.env.TOSS_SECRET_KEY) {
+      return res.status(500).send(payResultHtml(false, '결제 모듈 설정 오류입니다. 관리자에게 문의해 주세요.', id));
+    }
+    const resp = await fetch('https://api.tosspayments.com/v1/payments/confirm', {
+      method: 'POST',
+      headers: {
+        authorization: 'Basic ' + Buffer.from(`${process.env.TOSS_SECRET_KEY}:`).toString('base64'),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ paymentKey, orderId, amount: Number(amount) }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.status !== 'DONE') {
+      return res.status(400).send(payResultHtml(false, `결제 승인에 실패했습니다: ${data.message || data.code || '알 수 없는 오류'}`, id));
+    }
+    const paid = await updateOrder(id, { status: 'paid', payMethod: 'tosspayments', paymentKey });
+    runResearch(paid); // 결제 확인 즉시 에이전트 자동 시작 — 사람 개입 없음
+  }
+  res.send(payResultHtml(true, '결제가 완료되었습니다! 에이전트가 곧바로 조사를 시작했어요. 완료되면 리포트 링크가 열립니다.', id));
+});
+
+app.get('/pay/fail', (req, res) => {
+  res.send(payResultHtml(false, `결제가 진행되지 않았습니다${req.query.message ? ` (${req.query.message})` : ''}. 다시 시도해 주세요.`, ''));
 });
 
 // ---- 관리자 ----

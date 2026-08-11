@@ -41,6 +41,10 @@ $('#order-form').addEventListener('submit', async (e) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '접수에 실패했습니다.');
+    if (body.payMethod === 'toss') {
+      location.href = `/pay/${data.id}`; // 카드/간편결제 페이지로 즉시 이동
+      return;
+    }
     const t = CONFIG?.tiers?.[body.tier];
     const payLines = [];
     if (body.payMethod === 'toss' && CONFIG?.pay?.tossId) payLines.push(`토스 아이디 <strong>${CONFIG.pay.tossId}</strong>로 ₩${t.krw.toLocaleString()} 송금`);
