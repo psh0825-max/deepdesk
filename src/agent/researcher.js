@@ -15,10 +15,12 @@ const TIER_SPEC = {
 };
 
 function client() {
-  if (!process.env.GEMINI_API_KEY) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
     throw new Error('GEMINI_API_KEY가 설정되지 않았습니다 (.env 참고)');
   }
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const vertexai = process.env.GEMINI_USE_VERTEX === '1';
+  return new GoogleGenAI({ vertexai, apiKey });
 }
 
 const MODEL = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
