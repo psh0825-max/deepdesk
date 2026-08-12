@@ -13,7 +13,8 @@ function transporter() {
 }
 
 const FROM = () => process.env.MAIL_FROM || `DeepDesk <${process.env.SMTP_USER}>`;
-const BASE = () => process.env.PUBLIC_BASE_URL || 'http://localhost:8080';
+// 로컬 개발 서버가 만든 리포트는 프로드에 없다 — 배포 환경(K_SERVICE)에서만 공개 URL 사용
+const BASE = () => (process.env.K_SERVICE && process.env.PUBLIC_BASE_URL) || `http://localhost:${process.env.PORT || 8080}`;
 
 export async function sendPaidEmail(order) {
   const t = transporter();
