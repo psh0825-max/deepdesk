@@ -4,6 +4,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { appendProgress, updateOrder, saveReport } from '../store.js';
 import { pay } from './wallet.js';
+import { officialDataAvailable, kosisLookup, dartFinancials } from './datasources.js';
 
 const TIER_SPEC = {
   light: { subQuestions: 4, label: '라이트', verify: false, twoPart: false, minChars: 9000 },
@@ -54,6 +55,7 @@ async function generate(ai, { model, prompt, useSearch, costs, maxTokens }) {
     model: model || MODEL_FAST(),
     contents: prompt,
     config: {
+      // urlContext 병용은 검색 그라운딩 폭을 크게 줄이는 회귀가 있어 제외 (2026-08-12 실측: 출처 50~130건 → 11건)
       ...(useSearch ? { tools: [{ googleSearch: {} }] } : {}),
       ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
     },
@@ -122,6 +124,43 @@ ${brief ? `클라이언트 요구사항: ${brief}` : ''}`,
       await updateOrder(id, { costs });
     }
 
+    // 2.5) 공식 원천 데이터 보강 — KOSIS(통계청)·DART(전자공시) API 키가 있을 때만
+    let officialBlock = '';
+    const avail = officialDataAvailable();
+    if (avail.kosis || avail.dart) {
+      try {
+        const planRes = await generate(ai, {
+          costs,
+          prompt: `다음 리서치 주제와 조사 결과를 보고, 공식 원천 데이터로 보강할 대상을 JSON으로만 출력하라.
+{"kosisKeywords":["국가통계포털에서 검색할 통계 키워드 최대 3개 (짧은 명사구)"],"dartCompanies":["재무제표를 조회할 한국 기업명 최대 3개 (정확한 상호)"]}
+해당 없으면 빈 배열. JSON 외 출력 금지.
+
+주제: ${topic}
+조사 요약: ${findings.map((f) => f.question).join(' / ')}`,
+        });
+        const plan2 = JSON.parse(planRes.text.match(/\{[\s\S]*\}/)?.[0] || '{}');
+        const kosisKeywords = avail.kosis ? (plan2.kosisKeywords || []).slice(0, 3) : [];
+        const dartCompanies = avail.dart ? (plan2.dartCompanies || []).slice(0, 3) : [];
+        const results = await Promise.all([
+          ...kosisKeywords.map((k) => kosisLookup(k)),
+          ...dartCompanies.map((c) => dartFinancials(c)),
+        ]);
+        const hits = results.filter(Boolean);
+        if (hits.length) {
+          officialBlock = '\n\n## 공식 원천 데이터 (반드시 우선 사용하고 출처를 명시할 것)\n' + hits.map((h) => {
+            allSources.push({ title: `${h.source} — ${h.table || h.corp}`, uri: h.url });
+            const rows = (h.rows || []).slice(0, 25).map((r) =>
+              h.corp ? `- ${r.account}: ${r.amount}${r.unit} (${h.year}년, 연결/별도 공시 기준)` : `- ${r.item} [${r.period}]: ${r.value}${r.unit}`
+            ).join('\n');
+            return `### ${h.source}: ${h.table || `${h.corp} 주요 재무 (${h.year})`}\n${rows}`;
+          }).join('\n\n');
+          await appendProgress(id, `공식 데이터 확보 — KOSIS ${kosisKeywords.length ? '조회' : '건너뜀'}, DART ${dartCompanies.length ? '조회' : '건너뜀'} (원천 ${hits.length}건)`);
+        }
+      } catch (e) {
+        await appendProgress(id, `공식 데이터 보강 생략 (${e.message})`);
+      }
+    }
+
     // 3) 유료 데이터 결제 — 에이전트가 자기 지갑으로 직접 결제 (가드레일 내, 실패 시 무료 경로 폴백)
     let payment = null;
     const paid = await pay({
@@ -149,7 +188,7 @@ ${brief ? `클라이언트 요구사항: ${brief}` : ''}`,
 ${brief ? `클라이언트 요구사항: ${brief}` : ''}
 
 리서치팀 조사 결과:
-${findingsBlock}
+${findingsBlock}${officialBlock}
 
 작성 규칙: ${lang}, Markdown. 조사 결과에 없는 수치는 만들지 않는다. 비교·나열 데이터는 반드시 Markdown 표(|)로 정리한다. 문장은 단정적으로, 근거는 병기한다.
 분량 규칙: 이 리포트는 유료 상품이다. 조사 결과에 담긴 사실·수치·사례를 최대한 활용해 각 소제목마다 3문단 이상으로 충실히 서술하라. 요약체로 축약하지 말고, 배경 맥락과 해석을 함께 담아라. 미사여구로 분량을 채우는 것은 금지한다.`;
