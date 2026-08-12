@@ -2,7 +2,7 @@ import './src/env.js';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createOrder, getOrder, listOrders, updateOrder, markPaidOnce, getReport } from './src/store.js';
+import { createOrder, getOrder, listOrders, updateOrder, markPaidOnce, getReport, appendProgress } from './src/store.js';
 import { enqueueRun, queueStats } from './src/queue.js';
 import { getAddress, getLedger } from './src/agent/wallet.js';
 import { sendPaidEmail, sendOwnerAlert } from './src/mailer.js';
@@ -244,5 +244,25 @@ app.post('/api/admin/orders/:id/refund', requireAdmin, async (req, res) => {
   res.json({ ok: true, id: order.id });
 });
 
+// 크래시/재배포로 끊긴 주문 복구: paid(실행 직전)·queued·running 상태를 재큐잉
+async function recoverInterrupted() {
+  try {
+    const stuck = [];
+    for (const status of ['paid', 'queued', 'running']) {
+      stuck.push(...(await listOrders({ status, limit: 50 })));
+    }
+    for (const o of stuck) {
+      await appendProgress(o.id, '서버 재시작 감지 — 조사를 처음부터 다시 시작합니다');
+      await enqueueRun(o);
+    }
+    if (stuck.length) console.log(`recovered ${stuck.length} interrupted order(s)`);
+  } catch (e) {
+    console.error('recovery failed:', e.message);
+  }
+}
+
 const port = process.env.PORT || 8080;
-app.listen(port, () => console.log(`DeepDesk listening on :${port} (store: ${process.env.K_SERVICE ? 'firestore' : 'file'})`));
+app.listen(port, () => {
+  console.log(`DeepDesk listening on :${port} (store: ${process.env.K_SERVICE ? 'firestore' : 'file'})`);
+  recoverInterrupted();
+});

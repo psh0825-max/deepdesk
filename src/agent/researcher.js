@@ -6,9 +6,9 @@ import { appendProgress, updateOrder, saveReport } from '../store.js';
 import { pay } from './wallet.js';
 
 const TIER_SPEC = {
-  light: { subQuestions: 4, label: '라이트', verify: false, twoPart: false },
-  standard: { subQuestions: 7, label: '스탠다드', verify: true, twoPart: false },
-  deep: { subQuestions: 10, label: '딥', verify: true, twoPart: true },
+  light: { subQuestions: 4, label: '라이트', verify: false, twoPart: false, minChars: 9000 },
+  standard: { subQuestions: 7, label: '스탠다드', verify: true, twoPart: false, minChars: 16000 },
+  deep: { subQuestions: 10, label: '딥', verify: true, twoPart: true, minChars: 13000 }, // 부당 하한 (2부 합산 26,000+)
 };
 
 const MODEL_FAST = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -151,7 +151,8 @@ ${brief ? `클라이언트 요구사항: ${brief}` : ''}
 리서치팀 조사 결과:
 ${findingsBlock}
 
-작성 규칙: ${lang}, Markdown. 조사 결과에 없는 수치는 만들지 않는다. 비교·나열 데이터는 반드시 Markdown 표(|)로 정리한다. 문장은 단정적으로, 근거는 병기한다.`;
+작성 규칙: ${lang}, Markdown. 조사 결과에 없는 수치는 만들지 않는다. 비교·나열 데이터는 반드시 Markdown 표(|)로 정리한다. 문장은 단정적으로, 근거는 병기한다.
+분량 규칙: 이 리포트는 유료 상품이다. 조사 결과에 담긴 사실·수치·사례를 최대한 활용해 각 소제목마다 3문단 이상으로 충실히 서술하라. 요약체로 축약하지 말고, 배경 맥락과 해석을 함께 담아라. 미사여구로 분량을 채우는 것은 금지한다.`;
 
     let body;
     if (spec.twoPart) {
@@ -162,7 +163,7 @@ ${findingsBlock}
         maxTokens: 32768,
         prompt: `${baseCtx}
 
-리포트 전반부를 작성하라. 구성:
+리포트 전반부를 작성하라. 이 부분 분량은 공백 포함 최소 ${spec.minChars.toLocaleString()}자 이상이어야 한다. 구성:
 # (리포트 제목)
 **3줄 핵심 요약** (의사결정자가 이것만 읽어도 되게)
 ## 요약 (Executive Summary) — 4~6문단
@@ -180,7 +181,7 @@ ${findingsBlock}
 ${partA.text.slice(0, 4000)}
 …(중략)
 
-이어지는 후반부를 작성하라. 전반부와 중복하지 말 것. 구성:
+이어지는 후반부를 작성하라. 전반부와 중복하지 말 것. 이 부분 분량은 공백 포함 최소 ${spec.minChars.toLocaleString()}자 이상이어야 한다. 구성:
 ## 심층 분석 — 주제별 소제목으로 나눠 구체적으로 (경쟁사·사업자 비교 표 포함)
 ## 리스크와 반론 — 낙관론에 대한 반대 근거 포함
 ## 시나리오 — 낙관/기본/비관 3개, 각 시나리오의 트리거 조건 명시
@@ -195,7 +196,7 @@ ${partA.text.slice(0, 4000)}
         maxTokens: 32768,
         prompt: `${baseCtx}
 
-완결된 클라이언트 리포트를 작성하라. 구성:
+완결된 클라이언트 리포트를 작성하라. 본문 분량은 공백 포함 최소 ${spec.minChars.toLocaleString()}자 이상이어야 한다. 구성:
 # (리포트 제목)
 **3줄 핵심 요약**
 ## 요약 (Executive Summary)
