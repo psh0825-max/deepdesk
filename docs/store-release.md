@@ -84,30 +84,45 @@
 
 ## 3. App Store Connect (맥에서)
 
-1. 앱 이름 `DeepDesk`의 전역 사용 가능 여부를 확인한다. 이미 있으면 `DeepDesk AI Research`를 쓴다. 코드 변경은 필요 없다.
-2. Apple Developer에서 번들 ID `com.lightonpluslab.deepdesk`, 팀 `237X7RZB63`을 확인한다. 최소 iOS는 15.0이다.
-3. **소모성 인앱 구입**에 `deepdesk_light`, `deepdesk_standard`, `deepdesk_deep`를 만든다. 각 상품의 심사용 스크린샷을 반드시 넣는다. 한국 가격점에 ₩4,900이 없으면 가장 가까운 가격점을 고른다.
-4. 앱 개인정보 라벨에는 이메일과 리서치 주제/브리프만 선언한다. 광고·추적·분석 SDK는 없다고 답한다. 로그인 기능이 없으므로 Sign in with Apple 및 계정 삭제 항목은 해당하지 않는다.
-5. 심사 정보에 아래 영문 메모를 넣는다.
+코드 쪽은 끝났다(2026-09-15): iPhone 전용(`TARGETED_DEVICE_FAMILY = 1`), iOS 15+, 팀 `237X7RZB63`, 번들 `com.lightonpluslab.deepdesk`, 개인정보 매니페스트 연결, `ITSAppUsesNonExemptEncryption=false`.
+붙일 문안은 전부 `app/store/appstore.ko-KR.md`, `app/store/appstore.en-US.md`에 있고, 스크린샷은 `app/store/out/screenshots/iphone69/{ko,en}/`(1320×2868)·`iphone65/ko/`(1242×2688), 인앱 심사용 이미지는 `app/store/out/iap-review/*.png`다.
 
-   ```text
-   No login is required. After purchase, research runs for 5–30 minutes and the report appears in the app and is also delivered by email.
-   Sandbox/test purchases trigger a real run; the server retries Apple sandbox receipts on status 21007, so reviewers can see a real report. Each test run has a small Gemini cost.
-   ```
+### 3-1. ASC 웹에서 (윈도우에서도 가능)
+1. **앱 만들기** — 플랫폼 iOS, 이름 `DeepDesk`(전 세계 유일해야 함; 막히면 `DeepDesk AI Research`, 코드 무관), 기본 언어 한국어, 번들 ID `com.lightonpluslab.deepdesk`(없으면 Certificates → Identifiers에서 먼저 등록, In-App Purchase 기본 포함), SKU `deepdesk-ios`, 사용자 액세스 전체.
+2. **앱 정보** — 카테고리 비즈니스(보조 생산성), 개인정보 처리방침 URL `https://deepdesk-o5kintt6za-du.a.run.app/privacy.html`, 콘텐츠 권한 "타사 콘텐츠 없음".
+3. **가격 및 사용 가능 여부** — 무료, 모든 국가.
+4. **인앱 구입** → 소모성 3개. 참조 이름/제품 ID/표시 이름/설명은 `appstore.ko-KR.md`의 표 그대로(en-US 현지화도 추가). 가격은 ₩4,900·14,900·29,900에 **가장 가까운 가격 등급**(Apple 가격점은 900원 단위가 없을 수 있음 — 앱은 스토어 가격을 그대로 표시하므로 코드 수정 불필요). 각 상품에 **심사용 스크린샷** `iap-review/<제품ID>.png` 필수 — 이게 없으면 상품이 "메타데이터 누락"으로 심사에 안 들어간다.
+5. **앱 개인정보** — 데이터 수집 예: 이메일 주소(앱 기능), 구매 내역(앱 기능), 기타 사용자 콘텐츠=조사 주제(앱 기능). 전부 "사용자와 연결됨", "추적에 사용 안 함". 그 외 수집 없음.
+6. **연령 등급** — 설문 전부 "없음" → 4+. (Play는 온라인 콘텐츠 사유로 브라질만 14+였다.)
+7. **버전 1.0** — 스크린샷 6.9″ 슬롯에 `iphone69/ko` 5장(`01_order_tiers`는 `01_order_top`과 동일하니 하나만), 6.5″ 슬롯에 `iphone65/ko` 5장. en-US 현지화 추가 후 `iphone69/en`. 프로모션 텍스트·설명·키워드·지원 URL·마케팅 URL은 문안 파일에서 복사. 저작권 `2026 LightOn Plus Lab`.
+8. **App Review 정보** — 로그인 필요 없음(체크 해제), 연락처 이름/전화/이메일, 메모에 문안 파일의 "심사 노트(영문)" 전문. 첨부 없음.
+9. **버전 출시** — "수동 출시"로 두면 승인 뒤 원할 때 출시.
 
-6. 맥에서 빌드하고 업로드한다.
+### 3-2. 맥에서 (빌드·업로드·검증)
+```bash
+git pull
+cd app && flutter pub get
+cd ios && pod install && cd ..
+bash ios/verify-release.sh          # 정적 검사 + 서버 /api/config 확인, 전부 PASS여야 함
+flutter build ipa --release         # build/ios/ipa/deepdesk_app.ipa
+```
+- 처음이면 Xcode → Runner 타겟 → Signing & Capabilities에서 팀 `237X7RZB63` 자동 서명 확인. 별도 Capability 추가 불필요(로그인 없음, 푸시 없음).
+- **Transporter**(Mac App Store)로 `.ipa` 업로드 → ASC 버전 1.0에서 빌드 선택.
+- **TestFlight** 내부 테스터로 설치 → 설정 → App Store → Sandbox 계정 로그인 → 앱에서 라이트 구매 → 진행 화면 진입 확인 → 서버 로그:
+  ```bash
+  gcloud logging read 'resource.labels.service_name="deepdesk" AND textPayload:"iap confirm"' --project deepdesk-xprize --limit 10 --freshness 1h
+  ```
+  `platform=ios reason=paid`면 전 구간 통과. `reason=rejected`에 status 21002면 영수증 형식(StoreKit 2 JWS를 보낸 것 — 앱은 `in_app_purchase_storekit` 기본이라 Songbit처럼 `enableStoreKit1()`가 필요할 수 있다), 21004면 공유 암호 불일치(소모성엔 없어도 됨).
+- 심사 제출. 최초 심사는 보통 1~3일.
 
-   ```bash
-   cd app
-   flutter build ipa --release
-   bash ios/verify-release.sh
-   ```
-
-7. TestFlight와 샌드박스 계정으로 각 소모성 상품을 결제한다. 실제 리서치 실행과 이메일 도착을 확인하고 서버 로그에서 `reason=paid`를 확인한다.
-8. 개인정보처리방침 URL과 이용약관 URL, 지원 이메일을 입력한 뒤 제출한다.
-   - 개인정보처리방침: `https://deepdesk-o5kintt6za-du.a.run.app/privacy.html`
-   - 이용약관: `https://deepdesk-o5kintt6za-du.a.run.app/terms.html`
-   - 지원: `support@lightonpluslab.com`
+### 3-3. Apple 심사에서 걸리기 쉬운 것 (이 앱 기준)
+- **2.1 앱 완성도** — 심사원이 실제로 결제해 리포트를 봐야 한다. Sandbox 구매도 실제 조사를 돌리므로 5~30분 뒤 리포트가 뜬다. 심사 노트에 이미 써 있다.
+- **3.1.1 인앱 구입** — 리포트는 IAP로만. 외부 결제 링크·가격 언급 없음(확인됨).
+- **3.1.5 암호화폐** — 앱·문안·스크린샷에 지갑/USDC 문구 없음(확인됨). 서버 진행 로그의 USDC 줄은 앱이 필터.
+- **5.1.1 데이터 수집** — 이메일 입력란 아래 "리포트를 이 주소로 보내드립니다" 사유 표시(확인됨). 계정 없음 → Sign in with Apple·계정 삭제 요건 해당 없음.
+- **4.2 최소 기능** — 웹 래퍼 아님. 네이티브 5화면(주문·진행·리포트·기록·정보).
+- **1.2 사용자/AI 생성 콘텐츠** — 리포트 끝에 전체 출처 목록, 앱에 "문제 신고"(support@ 메일) 있음. 심사 노트에 명시.
+- **5.1.2 데이터 사용** — 앱 개인정보 라벨과 실제 수집(이메일·구매·주제)이 일치해야 한다. 위 5번 그대로.
 
 ## 4. 심사에서 걸리기 쉬운 것
 
