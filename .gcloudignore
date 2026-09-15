@@ -8,3 +8,5 @@ data/
 reports/
 *.log
 scripts/
+app/
+test/
