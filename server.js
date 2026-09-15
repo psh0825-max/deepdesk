@@ -1,11 +1,13 @@
 import './src/env.js';
 import express from 'express';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { createOrder, getOrder, listOrders, updateOrder, markPaidOnce, getReport, appendProgress } from './src/store.js';
+import { createOrder, getOrder, listOrders, updateOrder, markPaidOnce, getReport, appendProgress, claimIapToken } from './src/store.js';
 import { enqueueRun, queueStats } from './src/queue.js';
 import { getAddress, getLedger } from './src/agent/wallet.js';
 import { sendPaidEmail, sendOwnerAlert } from './src/mailer.js';
+import { PRODUCT_TO_TIER, tierForProduct, verifyAndroidPurchase, verifyApplePurchase } from './src/iap.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -51,6 +53,7 @@ app.get('/api/config', (req, res) => {
       usdcAddress: getAddress(),
       usdcChain: process.env.USDC_CHAIN || 'BASE-SEPOLIA',
     },
+    iap: { products: { light: 'deepdesk_light', standard: 'deepdesk_standard', deep: 'deepdesk_deep' } },
   });
 });
 
@@ -129,6 +132,70 @@ async function settlePaidOrder(id, patch) {
   return result;
 }
 
+function iapLog(level, platform, orderId, reason) {
+  console[level](`iap confirm platform=${platform} orderId=${orderId || '-'} reason=${reason}`);
+}
+
+app.post('/api/iap/confirm', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+  if (rateLimited(ip)) {
+    iapLog('warn', '-', '-', 'rate_limited');
+    return res.status(429).json({ error: 'rate_limited' });
+  }
+  const { orderId, platform, productId, purchaseToken, receipt } = req.body || {};
+  const invalid = !orderId || typeof orderId !== 'string' || !['android', 'ios'].includes(platform)
+    || !PRODUCT_TO_TIER[productId] || (platform === 'android' && (!purchaseToken || typeof purchaseToken !== 'string'))
+    || (platform === 'ios' && (!receipt || typeof receipt !== 'string'));
+  if (invalid) {
+    iapLog('warn', platform, orderId, 'bad_request');
+    return res.status(400).json({ error: 'bad_request' });
+  }
+  const order = await getOrder(orderId);
+  if (!order) {
+    iapLog('warn', platform, orderId, 'not_found');
+    return res.status(404).json({ error: 'not_found' });
+  }
+  const tier = tierForProduct(productId);
+  if (order.tier !== tier) {
+    iapLog('warn', platform, orderId, 'tier_mismatch');
+    return res.status(400).json({ error: 'tier_mismatch' });
+  }
+  if (order.status !== 'awaiting_payment') {
+    iapLog('log', platform, orderId, 'already_processed');
+    return res.json({ status: order.status, already: true });
+  }
+  const verification = platform === 'android'
+    ? await verifyAndroidPurchase({ productId, purchaseToken })
+    : await verifyApplePurchase({ receipt });
+  if (!verification.ok) {
+    iapLog('warn', platform, orderId, verification.reason || 'verification_failed');
+    return res.status(402).json({ error: 'verification_failed', reason: verification.reason });
+  }
+  if (platform === 'ios' && verification.productId !== productId) {
+    iapLog('warn', platform, orderId, 'product_mismatch');
+    return res.status(402).json({ error: 'verification_failed', reason: 'product_mismatch' });
+  }
+  const tokenValue = platform === 'android' ? purchaseToken : verification.transactionId;
+  const tokenHash = crypto.createHash('sha256').update(`${platform}:${tokenValue}`).digest('hex');
+  const claim = await claimIapToken(tokenHash, orderId);
+  if (!claim.ok) {
+    iapLog('warn', platform, orderId, 'token_reused');
+    return res.status(409).json({ error: 'token_reused' });
+  }
+  const iapRef = platform === 'ios'
+    ? verification.transactionId
+    : crypto.createHash('sha256').update(purchaseToken).digest('hex').slice(0, 16);
+  const result = await settlePaidOrder(orderId, {
+    payMethod: `iap_${platform}`, iapProductId: productId, iapRef, paidAmount: TIERS[tier].krw,
+  });
+  if (!result.ok) {
+    iapLog('log', platform, orderId, 'already_processed');
+    return res.json({ status: result.order?.status || 'paid', already: true });
+  }
+  iapLog('log', platform, orderId, 'paid');
+  return res.json({ status: 'paid' });
+});
+
 app.get('/pay/success', async (req, res) => {
   const { paymentKey, orderId, amount } = req.query;
   const id = String(orderId || '').replace(/^dd-/, '');
@@ -190,7 +257,7 @@ async function reconcileSweep() {
     console.error('reconcile sweep failed:', e.message);
   }
 }
-setInterval(reconcileSweep, 3 * 60_000).unref();
+if (process.env.DEEPDESK_NO_LISTEN !== '1') setInterval(reconcileSweep, 3 * 60_000).unref();
 
 // ---- 관리자 ----
 function requireAdmin(req, res, next) {
@@ -262,7 +329,11 @@ async function recoverInterrupted() {
 }
 
 const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`DeepDesk listening on :${port} (store: ${process.env.K_SERVICE ? 'firestore' : 'file'})`);
-  recoverInterrupted();
-});
+if (process.env.DEEPDESK_NO_LISTEN !== '1') {
+  app.listen(port, () => {
+    console.log(`DeepDesk listening on :${port} (store: ${process.env.K_SERVICE ? 'firestore' : 'file'})`);
+    recoverInterrupted();
+  });
+}
+
+export { app };

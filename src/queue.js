@@ -9,6 +9,8 @@ const waiting = [];
 let active = 0;
 
 export async function enqueueRun(order) {
+  // 테스트 전용 — 실제 조사/메일 실행 차단
+  if (process.env.DEEPDESK_TEST_NO_RUN === '1') return updateOrder(order.id, { status: 'queued' });
   await updateOrder(order.id, { status: 'queued' });
   await appendProgress(order.id, '결제 확인 — 조사 대기열에 등록');
   waiting.push(order.id);

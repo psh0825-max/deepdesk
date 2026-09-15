@@ -136,6 +136,34 @@ export async function markPaidOnce(id, patch) {
   });
 }
 
+// IAP 영수증/토큰은 한 주문에만 연결한다.
+export async function claimIapToken(key, orderId) {
+  if (USE_FIRESTORE) {
+    const fdb = await firestore();
+    const ref = fdb.collection('iap_tokens').doc(String(key));
+    return fdb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) {
+        tx.set(ref, { orderId, at: new Date().toISOString() });
+        return { ok: true };
+      }
+      const owner = snap.data().orderId;
+      return owner === orderId ? { ok: true, already: true } : { ok: false, orderId: owner };
+    });
+  }
+  return serialized(async () => {
+    const tokens = (await loadJson('iap_tokens.json')) || {};
+    if (!tokens[key]) {
+      tokens[key] = { orderId, at: new Date().toISOString() };
+      await saveJson('iap_tokens.json', tokens);
+      return { ok: true };
+    }
+    return tokens[key].orderId === orderId
+      ? { ok: true, already: true }
+      : { ok: false, orderId: tokens[key].orderId };
+  });
+}
+
 export async function appendProgress(id, message) {
   const entry = { at: new Date().toISOString(), message };
   if (USE_FIRESTORE) {
