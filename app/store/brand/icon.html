@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+  body { background: #F7F6F2; display: grid; place-items: center; }
+  .badge { width: 88%; height: 88%; border-radius: 22%; background: #123B73; display: grid; place-items: center; }
+  .mark { position: relative; width: 49%; height: 58%; }
+  .stem { position: absolute; left: 0; top: 0; width: 21%; height: 100%; border-radius: 10px; background: white; }
+  .bowl { position: absolute; left: 12%; top: 0; width: 88%; height: 100%; border: 62px solid white; border-left-width: 0; border-radius: 0 52% 52% 0; }
+  .page { position: absolute; left: 47%; top: 22%; width: 27%; height: 56%; border-radius: 5%; background: #123B73; border: 9px solid white; }
+  .page::before, .page::after { content: ""; position: absolute; left: 18%; width: 64%; height: 8%; border-radius: 99px; background: white; }
+  .page::before { top: 29%; }
+  .page::after { top: 52%; }
+</style>
+</head>
+<body><div class="badge" aria-label="D"><div class="mark"><i class="stem"></i><i class="bowl"></i><i class="page"></i></div></div></body>
+</html>

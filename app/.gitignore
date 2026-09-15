@@ -48,3 +48,7 @@ app.*.map.json
 android/key.properties
 android/app/*.jks
 android/app/*.keystore
+
+# 스토어 스크린샷 렌더용 폰트 (32MB, 커밋 안 함 — store/README.md 참고)
+test/store/fonts/*.otf
+test/store/fonts/*.ttf
