@@ -1,1 +1,0 @@
-import './iap.test.js';
