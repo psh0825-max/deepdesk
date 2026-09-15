@@ -38,6 +38,14 @@
 
 ## 2. Google Play Console
 
+### 업로드는 클릭 한 번
+`app\publish-internal.cmd` 더블클릭 → 릴리스 AAB 빌드 → Play Developer API 로 internal 트랙 업로드·검증·커밋. 릴리스 노트는 `app\play-notes\<locale>.txt`.
+- **앱이 Play Console 에 먼저 만들어져 있어야 한다** (아래 2-1). 없으면 `HTTP 404 Package not found` 로 멈춘다.
+- 서비스계정(`play-store-publisher@momoi-486213`)에 이 앱 권한이 없으면 `HTTP 403` → 사용자 및 권한에서 앱 추가 후 다시 더블클릭.
+- 같은 빌드번호를 두 번 올리면 "버전코드 이미 사용" → `app/pubspec.yaml` 의 `+N` 을 올린다. 터미널에서 `--dry-run` 을 붙이면 발행 없이 검증만.
+- 서명키 `app/android/app/deepdesk-upload.jks` + `app/android/key.properties` 는 2026-09-15 생성됨(gitignore). **백업 필수** — 잃으면 Play App Signing 에서 업로드 키 재설정 절차를 밟아야 한다.
+
+
 1. 패키지 이름 `com.lightonpluslab.deepdesk`로 앱을 만든다.
 2. **인앱 상품 → 소모성 상품**에 아래 세 상품을 정확히 같은 ID로 만든다. 콘솔 가격이 앱 가격의 기준이다.
 
