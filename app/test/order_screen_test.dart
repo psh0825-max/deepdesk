@@ -1,46 +1,15 @@
-import 'dart:async';
-
 import 'package:deepdesk_app/providers.dart';
 import 'package:deepdesk_app/screens/order_screen.dart';
 import 'package:deepdesk_app/services/api_client.dart';
 import 'package:deepdesk_app/services/purchase_service.dart';
+import 'package:deepdesk_app/theme/app_theme.dart';
+import 'helpers/fake_store.dart';
+import 'helpers/scroll.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-class OrderScreenStore implements StoreGateway {
-  final events = StreamController<List<PurchaseDetails>>();
-
-  @override
-  Stream<List<PurchaseDetails>> get purchaseStream => events.stream;
-
-  @override
-  Future<bool> isAvailable() async => true;
-
-  @override
-  Future<ProductDetailsResponse> queryProductDetails(Set<String> ids) async {
-    return ProductDetailsResponse(productDetails: [], notFoundIDs: []);
-  }
-
-  @override
-  Future<bool> buyConsumable({
-    required PurchaseParam purchaseParam,
-    bool autoConsume = true,
-  }) async {
-    return true;
-  }
-
-  @override
-  Future<void> completePurchase(PurchaseDetails purchase) async {}
-
-  @override
-  Future<void> finishPurchase(PurchaseDetails purchase) async {}
-
-  @override
-  Future<void> restorePurchases() async {}
-}
 
 ServerConfig config() {
   return ServerConfig(
@@ -95,9 +64,14 @@ Future<void> pumpOrderScreen(
   WidgetTester tester, {
   required List<ProductDetails> availableProducts,
 }) async {
+  // Phone-sized viewport so the lazily built ListView holds all three fields.
+  tester.view.physicalSize = const Size(1080, 2340);
+  tester.view.devicePixelRatio = 2.625;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
-  final store = OrderScreenStore();
+  final store = FakeStoreGateway();
   final service = PurchaseService(
     gateway: store,
     api: ApiClient(baseUrl: 'https://example.invalid'),
@@ -115,7 +89,11 @@ Future<void> pumpOrderScreen(
         productsProvider.overrideWith((_) async => availableProducts),
         purchaseServiceProvider.overrideWithValue(service),
       ],
-      child: const MaterialApp(locale: Locale('en'), home: OrderScreen()),
+      child: MaterialApp(
+        theme: AppTheme.light(),
+        locale: const Locale('en'),
+        home: const OrderScreen(),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -187,13 +165,19 @@ void main() {
   testWidgets('tier cards show all store price strings', (tester) async {
     await pumpOrderScreen(tester, availableProducts: products());
 
-    expect(find.text('₩4,900'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -250));
-    await tester.pumpAndSettle();
-    expect(find.text('₩14,900'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -250));
-    await tester.pumpAndSettle();
-    expect(find.text('₩29,900'), findsOneWidget);
+    // The selected plan's price also appears in the order summary.
+    for (final price in ['₩4,900', '₩14,900', '₩29,900']) {
+      await scrollUntilFound(
+        tester,
+        find.text(price),
+        find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+    }
   });
 
   testWidgets('email reason text is visible', (tester) async {

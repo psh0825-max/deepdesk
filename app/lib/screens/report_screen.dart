@@ -1,24 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../core/config.dart';
 import '../l10n/strings.dart';
+import '../widgets/error_view.dart';
 
 class ReportScreen extends StatefulWidget {
   const ReportScreen({
     super.key,
     required this.reportPath,
-    required this.orderId,
+    this.orderId,
+    this.title,
   });
-  final String reportPath, orderId;
+
+  final String reportPath;
+  final String? orderId;
+  final String? title;
+
   @override
   State<ReportScreen> createState() => _ReportScreenState();
 }
 
 class _ReportScreenState extends State<ReportScreen> {
   late final WebViewController _controller;
-  bool _loading = true;
+  var _loading = true;
+  var _error = false;
+
   String get _url => '${AppConfig.baseUrl}${widget.reportPath}';
+
   @override
   void initState() {
     super.initState();
@@ -28,6 +38,14 @@ class _ReportScreenState extends State<ReportScreen> {
         NavigationDelegate(
           onPageStarted: (_) => setState(() => _loading = true),
           onPageFinished: (_) => setState(() => _loading = false),
+          onWebResourceError: (error) {
+            if (error.isForMainFrame ?? true) {
+              setState(() {
+                _error = true;
+                _loading = false;
+              });
+            }
+          },
         ),
       )
       ..loadRequest(Uri.parse(_url));
@@ -38,35 +56,71 @@ class _ReportScreenState extends State<ReportScreen> {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(s['report']),
+        title: Text(
+          widget.title ?? s['report'],
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(3),
+          child: _loading
+              ? const LinearProgressIndicator(minHeight: 3)
+              : const SizedBox(height: 3),
+        ),
         actions: [
           IconButton(
             tooltip: s['openBrowser'],
-            icon: const Icon(Icons.open_in_browser),
+            icon: const Icon(Icons.open_in_browser_rounded),
             onPressed: () => launchUrl(
               Uri.parse(_url),
               mode: LaunchMode.externalApplication,
             ),
           ),
           IconButton(
-            tooltip: s['reportIssue'],
-            icon: const Icon(Icons.flag_outlined),
-            onPressed: () => launchUrl(
-              Uri(
-                scheme: 'mailto',
-                path: AppConfig.supportEmail,
-                queryParameters: {'subject': '${s['order']} ${widget.orderId}'},
+            tooltip: s['copyLink'],
+            icon: const Icon(Icons.link_rounded),
+            onPressed: () => _copy(context, s),
+          ),
+          if (widget.orderId != null)
+            IconButton(
+              tooltip: s['reportIssue'],
+              icon: const Icon(Icons.flag_outlined),
+              onPressed: () => launchUrl(
+                Uri(
+                  scheme: 'mailto',
+                  path: AppConfig.supportEmail,
+                  queryParameters: {
+                    'subject': '${s['order']} ${widget.orderId}',
+                  },
+                ),
               ),
             ),
-          ),
         ],
       ),
-      body: Stack(
-        children: [
-          WebViewWidget(controller: _controller),
-          if (_loading) const Center(child: CircularProgressIndicator()),
-        ],
-      ),
+      body: _error
+          ? ErrorView(
+              title: s['offlineTitle'],
+              message: s['offlineMessage'],
+              onRetry: _retry,
+            )
+          : WebViewWidget(controller: _controller),
     );
+  }
+
+  Future<void> _copy(BuildContext context, AppStrings s) async {
+    await Clipboard.setData(ClipboardData(text: _url));
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s['copied'])));
+    }
+  }
+
+  void _retry() {
+    setState(() {
+      _error = false;
+      _loading = true;
+    });
+    _controller.loadRequest(Uri.parse(_url));
   }
 }

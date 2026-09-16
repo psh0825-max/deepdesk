@@ -1,18 +1,21 @@
+// Store listing screenshots rendered from the real widgets.
+// Run: flutter test test/store --dart-define=STORE_SHOTS=1 --update-goldens
+// Fonts (gitignored): test/store/fonts/NotoSansCJKkr-{Regular,Bold}.otf
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:deepdesk_app/providers.dart';
-import 'package:deepdesk_app/screens/about_screen.dart';
-import 'package:deepdesk_app/screens/history_screen.dart';
 import 'package:deepdesk_app/screens/order_screen.dart';
 import 'package:deepdesk_app/screens/order_status_screen.dart';
+import 'package:deepdesk_app/screens/root_shell.dart';
 import 'package:deepdesk_app/services/api_client.dart';
 import 'package:deepdesk_app/services/purchase_service.dart';
+import 'package:deepdesk_app/theme/app_theme.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -41,37 +44,59 @@ class _StoreGateway implements StoreGateway {
   Future<void> restorePurchases() async {}
 }
 
-class _DeviceProfile {
-  const _DeviceProfile(
-    this.outputDirectory,
-    this.physicalSize,
-    this.devicePixelRatio,
-  );
-
-  final String outputDirectory;
+class _Profile {
+  const _Profile(this.dir, this.physicalSize, this.dpr, this.locales);
+  final String dir;
   final Size physicalSize;
-  final double devicePixelRatio;
+  final double dpr;
+  final List<String> locales;
 }
 
-const _phone = _DeviceProfile('phone', Size(1080, 2160), 3);
-const _tablet7 = _DeviceProfile('tablet7', Size(1200, 1920), 2);
-const _tablet10 = _DeviceProfile('tablet10', Size(1600, 2560), 2);
-const _iphone69 = _DeviceProfile('iphone69', Size(1320, 2868), 3);
-const _iphone65 = _DeviceProfile('iphone65', Size(1242, 2688), 3);
+// Play: phone + 7"/10" tablets. App Store: 6.9" (ko/en) + 6.5" (ko).
+const _profiles = [
+  _Profile('phone', Size(1080, 2160), 3, ['ko', 'en']),
+  _Profile('tablet7', Size(1200, 1920), 2, ['ko']),
+  _Profile('tablet10', Size(1600, 2560), 2, ['ko']),
+  _Profile('iphone69', Size(1320, 2868), 3, ['ko', 'en']),
+  _Profile('iphone65', Size(1242, 2688), 3, ['ko']),
+];
 
-ServerConfig _config() => ServerConfig(
+const _shots = [
+  '01_home',
+  '02_pricing',
+  '03_order',
+  '04_progress',
+  '05_done',
+  '06_reports',
+  '07_settings',
+];
+
+// Legacy Play directories (phone/ko → ko, phone/en → en) keep their old paths.
+String _outDir(_Profile p, String locale) {
+  if (p.dir == 'phone') {
+    return locale;
+  }
+  return p.locales.length > 1 ? '${p.dir}/$locale' : p.dir;
+}
+
+ServerConfig _config(bool ko) => ServerConfig(
   tiers: {
-    'light': TierInfo(id: 'light', label: '라이트', pages: 'A4 7~8쪽', hours: 24),
+    'light': TierInfo(
+      id: 'light',
+      label: ko ? '라이트' : 'Light',
+      pages: ko ? 'A4 7~8쪽' : '7–8 pages',
+      hours: 24,
+    ),
     'standard': TierInfo(
       id: 'standard',
-      label: '스탠다드',
-      pages: 'A4 10~13쪽',
+      label: ko ? '스탠다드' : 'Standard',
+      pages: ko ? 'A4 10~13쪽' : '10–13 pages',
       hours: 48,
     ),
     'deep': TierInfo(
       id: 'deep',
-      label: '딥',
-      pages: 'A4 20쪽+ · 차트 포함',
+      label: ko ? '딥' : 'Deep',
+      pages: ko ? 'A4 20쪽+ · 차트 포함' : '20+ pages · charts',
       hours: 72,
     ),
   },
@@ -86,27 +111,31 @@ List<ProductDetails> _products(bool ko) {
   final prices = ko
       ? const ['₩4,900', '₩14,900', '₩29,900']
       : const ['\$3.49', '\$9.99', '\$19.99'];
-  return List.generate(3, (index) {
-    const ids = ['light', 'standard', 'deep'];
-    return ProductDetails(
-      id: 'deepdesk_${ids[index]}',
-      title: ids[index],
+  const ids = ['light', 'standard', 'deep'];
+  return List.generate(
+    3,
+    (i) => ProductDetails(
+      id: 'deepdesk_${ids[i]}',
+      title: ids[i],
       description: 'DeepDesk research report',
-      price: prices[index],
-      rawPrice: [4900, 14900, 29900][index].toDouble(),
+      price: prices[i],
+      rawPrice: [4900, 14900, 29900][i].toDouble(),
       currencyCode: ko ? 'KRW' : 'USD',
-    );
-  });
+    ),
+  );
 }
+
+String _topic(bool ko) => ko
+    ? '서울 20대 여성 대상 비건 카페 창업 시장성'
+    : 'Market viability of a vegan cafe for women in their 20s in Seoul';
 
 OrderStatus _status(bool ko, {required bool done}) => OrderStatus(
   id: done ? 'DD-20260915-0842' : 'DD-20260915-0841',
   status: done ? 'done' : 'running',
   tier: 'standard',
+  tierLabel: ko ? '스탠다드' : 'Standard',
   createdAt: '2026-09-15 10:24',
-  topic: ko
-      ? '서울 20대 여성 대상 비건 카페 창업 시장성'
-      : 'Market viability of a vegan cafe for women in their 20s in Seoul',
+  topic: _topic(ko),
   reportPath: done ? '/reports/DD-20260915-0842' : null,
   progress: ko
       ? [
@@ -117,12 +146,9 @@ OrderStatus _status(bool ko, {required bool done}) => OrderStatus(
           ProgressLine('10:42', done ? '종합 리포트 작성 완료' : '종합 리포트 작성 중'),
         ]
       : [
-          ProgressLine(
-            '10:24',
-            'Payment confirmed — added to the research queue',
-          ),
-          ProgressLine('10:26', 'Research plan created: 8 detailed questions'),
-          ProgressLine('10:31', 'Detailed research 3/8 complete (41 sources)'),
+          ProgressLine('10:24', 'Payment confirmed — added to the queue'),
+          ProgressLine('10:26', 'Research plan created: 8 sub-questions'),
+          ProgressLine('10:31', 'Sub-research 3/8 complete (41 sources)'),
           ProgressLine('10:37', 'Official data collected — 2 KOSIS datasets'),
           ProgressLine(
             '10:42',
@@ -131,7 +157,38 @@ OrderStatus _status(bool ko, {required bool done}) => OrderStatus(
         ],
 );
 
-Future<void> _loadNotoFont(String path, FontLoader loader) async {
+Map<String, Object> _historyPrefs(bool ko) {
+  final now = DateTime.now();
+  String ago(Duration d) => now.subtract(d).toIso8601String();
+  final orders = [
+    {
+      'id': 'DD-20260915-0842',
+      'topic': _topic(ko),
+      'tier': 'standard',
+      'createdAt': ago(const Duration(hours: 2)),
+      'lastStatus': 'done',
+    },
+    {
+      'id': 'DD-20260914-0839',
+      'topic': ko
+          ? '성수동 친환경 생활용품 시장 조사'
+          : 'Eco-friendly home goods market in Seongsu',
+      'tier': 'light',
+      'createdAt': ago(const Duration(days: 1, hours: 3)),
+      'lastStatus': 'running',
+    },
+    {
+      'id': 'DD-20260913-0837',
+      'topic': ko ? 'B2B SaaS 고객 이탈 요인 분석' : 'B2B SaaS customer churn analysis',
+      'tier': 'deep',
+      'createdAt': ago(const Duration(days: 6)),
+      'lastStatus': 'done',
+    },
+  ];
+  return {'orders': jsonEncode(orders)};
+}
+
+Future<void> _loadFont(String path, FontLoader loader) async {
   final bytes = await File(path).readAsBytes();
   loader.addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
 }
@@ -141,123 +198,89 @@ void main() {
       const String.fromEnvironment('STORE_SHOTS') == '1')) {
     return;
   }
-
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
     final loader = FontLoader('NotoSansKR');
-    await _loadNotoFont('test/store/fonts/NotoSansCJKkr-Regular.otf', loader);
-    await _loadNotoFont('test/store/fonts/NotoSansCJKkr-Bold.otf', loader);
+    await _loadFont('test/store/fonts/NotoSansCJKkr-Regular.otf', loader);
+    await _loadFont('test/store/fonts/NotoSansCJKkr-Bold.otf', loader);
     await loader.load();
-    // Flutter's material icon font is not part of a test app's asset bundle.
-    // Load the SDK copy so captured controls retain their real glyphs.
+    // The material icon font is not in a test app's bundle; load the SDK copy.
     final flutterRoot =
         Platform.environment['FLUTTER_ROOT'] ??
         File(Platform.resolvedExecutable).parent.parent.parent.parent.path;
-    final iconLoader = FontLoader('MaterialIcons');
-    await _loadNotoFont(
+    final icons = FontLoader('MaterialIcons');
+    await _loadFont(
       '$flutterRoot/bin/cache/artifacts/material_fonts/materialicons-regular.otf',
-      iconLoader,
+      icons,
     );
-    await iconLoader.load();
+    await icons.load();
   });
 
-  Future<void> verifyPng(File file, Size expectedSize) async {
+  Future<void> verifyPng(File file, Size expected) async {
     final bytes = await file.readAsBytes();
-    expect(
-      bytes.length,
-      greaterThan(33),
-      reason: '${file.path} is too small to be a PNG',
-    );
+    expect(bytes.length, greaterThan(33), reason: '${file.path} too small');
     expect(
       bytes.sublist(0, 8),
       equals(const [137, 80, 78, 71, 13, 10, 26, 10]),
     );
     final header = ByteData.sublistView(bytes);
-    expect(
-      header.getUint32(16),
-      expectedSize.width.toInt(),
-      reason: '${file.path} width',
-    );
-    expect(
-      header.getUint32(20),
-      expectedSize.height.toInt(),
-      reason: '${file.path} height',
-    );
-
+    expect(header.getUint32(16), expected.width.toInt(), reason: 'width');
+    expect(header.getUint32(20), expected.height.toInt(), reason: 'height');
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
-    final pixels = await frame.image.toByteData(
+    final raw = (await frame.image.toByteData(
       format: ui.ImageByteFormat.rawRgba,
-    );
-    final raw = pixels!.buffer.asUint8List();
-    final firstPixel = raw.sublist(0, 4);
-    final hasDifferentPixel = Iterable<int>.generate(raw.length ~/ 4)
-        .skip(1)
-        .any((pixel) {
-          final offset = pixel * 4;
-          return raw[offset] != firstPixel[0] ||
-              raw[offset + 1] != firstPixel[1] ||
-              raw[offset + 2] != firstPixel[2] ||
-              raw[offset + 3] != firstPixel[3];
-        });
+    ))!.buffer.asUint8List();
+    final first = raw.sublist(0, 4);
+    final varied = Iterable<int>.generate(raw.length ~/ 4).skip(1).any((p) {
+      final o = p * 4;
+      return raw[o] != first[0] ||
+          raw[o + 1] != first[1] ||
+          raw[o + 2] != first[2] ||
+          raw[o + 3] != first[3];
+    });
     frame.image.dispose();
     codec.dispose();
-    expect(hasDifferentPixel, isTrue, reason: '${file.path} must not be blank');
+    expect(varied, isTrue, reason: '${file.path} must not be blank');
   }
 
   tearDownAll(() async {
-    final source = File('store/out/screenshots/iphone69/ko/01_order_tiers.png');
-    if (!await source.exists()) return;
-    final output = Directory('store/out/iap-review');
-    await output.create(recursive: true);
-    for (final id in ['deepdesk_light', 'deepdesk_standard', 'deepdesk_deep']) {
-      final file = await source.copy('${output.path}/$id.png');
-      await verifyPng(file, _iphone69.physicalSize);
-      expect(await file.length(), greaterThan(0));
-    }
-
-    for (final entry in [
-      (_iphone69, 'ko'),
-      (_iphone69, 'en'),
-      (_iphone65, 'ko'),
-    ]) {
-      final (profile, locale) = entry;
-      for (final name in [
-        '01_order_top',
-        '01_order_tiers',
-        '02_progress',
-        '03_done',
-        '04_history',
-        '05_about',
-      ]) {
-        await verifyPng(
-          File(
-            'store/out/screenshots/${profile.outputDirectory}/$locale/$name.png',
-          ),
-          profile.physicalSize,
-        );
+    for (final p in _profiles) {
+      for (final locale in p.locales) {
+        for (final shot in _shots) {
+          await verifyPng(
+            File('store/out/screenshots/${_outDir(p, locale)}/$shot.png'),
+            p.physicalSize,
+          );
+        }
       }
+    }
+    // Apple requires one review screenshot per in-app product; the pricing shot fits.
+    final source = File('store/out/screenshots/iphone69/ko/02_pricing.png');
+    final out = Directory('store/out/iap-review');
+    await out.create(recursive: true);
+    for (final id in ['deepdesk_light', 'deepdesk_standard', 'deepdesk_deep']) {
+      await verifyPng(
+        await source.copy('${out.path}/$id.png'),
+        _profiles[3].physicalSize,
+      );
     }
   });
 
-  Future<void> setSurface(WidgetTester tester, _DeviceProfile profile) async {
-    tester.view.physicalSize = profile.physicalSize;
-    tester.view.devicePixelRatio = profile.devicePixelRatio;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-  }
-
-  Future<void> pumpStoreApp(
+  Future<void> pumpApp(
     WidgetTester tester, {
+    required _Profile profile,
     required bool ko,
     required Widget home,
-    _DeviceProfile profile = _phone,
     OrderStatus? fixedStatus,
-    Map<String, Object>? preferences,
+    Map<String, Object>? prefsValues,
   }) async {
-    await setSurface(tester, profile);
-    SharedPreferences.setMockInitialValues(preferences ?? {});
+    tester.view.physicalSize = profile.physicalSize;
+    tester.view.devicePixelRatio = profile.dpr;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues(prefsValues ?? {});
     final prefs = await SharedPreferences.getInstance();
     final gateway = _StoreGateway();
     final service = PurchaseService(
@@ -272,7 +295,7 @@ void main() {
       ProviderScope(
         overrides: [
           sharedPreferencesProvider.overrideWithValue(prefs),
-          configProvider.overrideWith((_) async => _config()),
+          configProvider.overrideWith((_) async => _config(ko)),
           productsProvider.overrideWith((_) async => _products(ko)),
           purchaseServiceProvider.overrideWithValue(service),
           if (fixedStatus != null)
@@ -285,380 +308,161 @@ void main() {
           locale: Locale(ko ? 'ko' : 'en'),
           supportedLocales: const [Locale('ko'), Locale('en')],
           localizationsDelegates: GlobalMaterialLocalizations.delegates,
-          theme: ThemeData(
-            useMaterial3: true,
-            fontFamily: 'NotoSansKR',
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF123B73),
-            ),
-          ),
+          theme: AppTheme.light(fontFamily: 'NotoSansKR'),
           home: home,
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    // The brand icon is decoded asynchronously; force it in before capturing.
+    await tester.runAsync(
+      () => precacheImage(
+        const AssetImage('assets/icon.png'),
+        tester.element(find.byType(MaterialApp)),
+      ),
+    );
+    // Progress indicators and the timeline pulse animate forever: never settle.
+    await tester.pump(const Duration(milliseconds: 600));
   }
 
-  Future<void> selectReportLanguage(WidgetTester tester, bool ko) async {
-    if (ko) {
-      await tester.tap(find.text('한국어'));
-      await tester.pumpAndSettle();
-    }
-  }
-
-  Future<void> capture(WidgetTester tester, String locale, String file) async {
+  Future<void> capture(WidgetTester tester, String dir, String file) async {
     FocusManager.instance.primaryFocus?.unfocus();
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     await expectLater(
       find.byType(MaterialApp),
-      matchesGoldenFile('../../store/out/screenshots/$locale/$file.png'),
+      matchesGoldenFile('../../store/out/screenshots/$dir/$file.png'),
     );
   }
 
-  for (final ko in [true, false]) {
-    final locale = ko ? 'ko' : 'en';
-    final topic = ko
-        ? '서울 20대 여성 대상 비건 카페 창업 시장성'
-        : 'Market viability of a vegan cafe for women in their 20s in Seoul';
+  Finder listScrollable() => find
+      .descendant(of: find.byType(ListView), matching: find.byType(Scrollable))
+      .first;
 
-    testWidgets('$locale 01 order top', (tester) async {
-      await pumpStoreApp(tester, ko: ko, home: const OrderScreen());
-      await tester.enterText(find.byType(TextField).at(0), topic);
-      await tester.enterText(find.byType(TextField).at(2), 'hello@example.com');
-      await tester.pump();
-      await selectReportLanguage(tester, ko);
-      await tester.drag(find.byType(ListView), const Offset(0, 1000));
-      await tester.pumpAndSettle();
-      await capture(tester, locale, '01_order_top');
-    });
+  for (final profile in _profiles) {
+    for (final locale in profile.locales) {
+      final ko = locale == 'ko';
+      final dir = _outDir(profile, locale);
+      final tag = '${profile.dir}/$locale';
 
-    testWidgets('$locale 01 order tiers', (tester) async {
-      await pumpStoreApp(tester, ko: ko, home: const OrderScreen());
-      await tester.enterText(find.byType(TextField).at(0), topic);
-      await tester.enterText(find.byType(TextField).at(2), 'hello@example.com');
-      await tester.pump();
-      await selectReportLanguage(tester, ko);
-      await tester.dragUntilVisible(
-        find.byType(FilledButton),
-        find.byType(ListView),
-        const Offset(0, -300),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-        isNotNull,
-      );
-      await capture(tester, locale, '01_order_tiers');
-    });
+      testWidgets('$tag 01 home', (tester) async {
+        await pumpApp(
+          tester,
+          profile: profile,
+          ko: ko,
+          home: const RootShell(),
+        );
+        await capture(tester, dir, '01_home');
+      });
 
-    testWidgets('$locale 02 progress', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        home: const OrderStatusScreen(orderId: 'DD-20260915-0841'),
-        fixedStatus: _status(ko, done: false),
-      );
-      await tester.scrollUntilVisible(
-        find.text(
-          ko ? '완료되면 이메일로도 보내드립니다' : 'We will also email you when it is ready.',
-        ),
-        200,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await capture(tester, locale, '02_progress');
-    });
+      testWidgets('$tag 02 pricing', (tester) async {
+        await pumpApp(
+          tester,
+          profile: profile,
+          ko: ko,
+          home: const RootShell(),
+        );
+        final deepPrice = find.text(ko ? '₩29,900' : '\$19.99');
+        for (var i = 0; i < 30 && deepPrice.evaluate().isEmpty; i++) {
+          await tester.drag(
+            find.byType(Scrollable).first,
+            const Offset(0, -300),
+          );
+          await tester.pump(const Duration(milliseconds: 300));
+        }
+        await tester.ensureVisible(deepPrice);
+        await tester.pump(const Duration(milliseconds: 300));
+        await capture(tester, dir, '02_pricing');
+      });
 
-    testWidgets('$locale 03 done', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        home: const OrderStatusScreen(orderId: 'DD-20260915-0842'),
-        fixedStatus: _status(ko, done: true),
-      );
-      await tester.scrollUntilVisible(
-        find.byType(FilledButton),
-        200,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await capture(tester, locale, '03_done');
-    });
+      testWidgets('$tag 03 order', (tester) async {
+        await pumpApp(
+          tester,
+          profile: profile,
+          ko: ko,
+          home: OrderScreen(initialTopic: _topic(ko)),
+        );
+        // Off-screen ListView children are unbuilt, so locate the email field
+        // by its hint instead of by index.
+        final emailField = find.ancestor(
+          of: find.text('name@example.com'),
+          matching: find.byType(TextField),
+        );
+        for (var i = 0; i < 30 && emailField.evaluate().isEmpty; i++) {
+          await tester.drag(listScrollable(), const Offset(0, -200));
+          await tester.pump(const Duration(milliseconds: 300));
+        }
+        await tester.ensureVisible(emailField);
+        await tester.enterText(emailField, 'hello@example.com');
+        await tester.pump();
+        if (ko) {
+          final korean = find.text('한국어');
+          for (var i = 0; i < 30 && korean.evaluate().isEmpty; i++) {
+            await tester.drag(listScrollable(), const Offset(0, -300));
+            await tester.pump(const Duration(milliseconds: 300));
+          }
+          await tester.ensureVisible(korean);
+          await tester.tap(korean);
+          await tester.pump();
+        }
+        final deepPrice = find.text(ko ? '₩29,900' : '\$19.99');
+        for (var i = 0; i < 30 && deepPrice.evaluate().isEmpty; i++) {
+          await tester.drag(listScrollable(), const Offset(0, -300));
+          await tester.pump(const Duration(milliseconds: 300));
+        }
+        await tester.ensureVisible(deepPrice.first);
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(
+          tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+          isNotNull,
+        );
+        await capture(tester, dir, '03_order');
+      });
 
-    testWidgets('$locale 04 history', (tester) async {
-      final orders = [
-        {
-          'id': 'DD-0842',
-          'topic': topic,
-          'tier': 'standard',
-          'createdAt': '2026-09-15 10:24',
-          'lastStatus': 'done',
-        },
-        {
-          'id': 'DD-0839',
-          'topic': ko
-              ? '성수동 친환경 생활용품 시장 조사'
-              : 'Eco-friendly home goods market in Seongsu',
-          'tier': 'light',
-          'createdAt': '2026-09-14 14:08',
-          'lastStatus': 'running',
-        },
-        {
-          'id': 'DD-0837',
-          'topic': ko
-              ? 'B2B SaaS 고객 이탈 요인 분석'
-              : 'B2B SaaS customer churn analysis',
-          'tier': 'deep',
-          'createdAt': '2026-09-13 09:16',
-          'lastStatus': 'queued',
-        },
-      ];
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        home: const HistoryScreen(),
-        preferences: {'orders': jsonEncode(orders)},
-      );
-      await capture(tester, locale, '04_history');
-    });
+      testWidgets('$tag 04 progress', (tester) async {
+        await pumpApp(
+          tester,
+          profile: profile,
+          ko: ko,
+          home: const OrderStatusScreen(orderId: 'DD-20260915-0841'),
+          fixedStatus: _status(ko, done: false),
+        );
+        await capture(tester, dir, '04_progress');
+      });
 
-    testWidgets('$locale 05 about', (tester) async {
-      await pumpStoreApp(tester, ko: ko, home: const AboutScreen());
-      await capture(tester, locale, '05_about');
-    });
-  }
+      testWidgets('$tag 05 done', (tester) async {
+        await pumpApp(
+          tester,
+          profile: profile,
+          ko: ko,
+          home: const OrderStatusScreen(orderId: 'DD-20260915-0842'),
+          fixedStatus: _status(ko, done: true),
+        );
+        await capture(tester, dir, '05_done');
+      });
 
-  for (final entry in [
-    (_iphone69, true),
-    (_iphone69, false),
-    (_iphone65, true),
-  ]) {
-    final (profile, ko) = entry;
-    final locale = ko ? 'ko' : 'en';
-    final output = '${profile.outputDirectory}/$locale';
-    final topic = ko
-        ? '서울 20대 여성 대상 비건 카페 창업 시장성'
-        : 'Market viability of a vegan cafe for women in their 20s in Seoul';
+      testWidgets('$tag 06 reports', (tester) async {
+        await pumpApp(
+          tester,
+          profile: profile,
+          ko: ko,
+          home: const RootShell(),
+          prefsValues: _historyPrefs(ko),
+        );
+        await tester.tap(find.text(ko ? '내 리포트' : 'My reports'));
+        await tester.pump(const Duration(milliseconds: 400));
+        await capture(tester, dir, '06_reports');
+      });
 
-    testWidgets('$output 01 order top', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderScreen(),
-      );
-      await tester.enterText(find.byType(TextField).at(0), topic);
-      await tester.enterText(find.byType(TextField).at(2), 'hello@example.com');
-      await tester.pump();
-      await selectReportLanguage(tester, ko);
-      await tester.drag(find.byType(ListView), const Offset(0, 1000));
-      await tester.pumpAndSettle();
-      await capture(tester, output, '01_order_top');
-    });
-
-    testWidgets('$output 01 order tiers', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderScreen(),
-      );
-      await tester.enterText(find.byType(TextField).at(0), topic);
-      await tester.enterText(find.byType(TextField).at(2), 'hello@example.com');
-      await tester.pump();
-      await selectReportLanguage(tester, ko);
-      await tester.dragUntilVisible(
-        find.byType(FilledButton),
-        find.byType(ListView),
-        const Offset(0, -300),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-        isNotNull,
-      );
-      await capture(tester, output, '01_order_tiers');
-    });
-
-    testWidgets('$output 02 progress', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderStatusScreen(orderId: 'DD-20260915-0841'),
-        fixedStatus: _status(ko, done: false),
-      );
-      await tester.scrollUntilVisible(
-        find.text(
-          ko ? '완료되면 이메일로도 보내드립니다' : 'We will also email you when it is ready.',
-        ),
-        200,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await capture(tester, output, '02_progress');
-    });
-
-    testWidgets('$output 03 done', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderStatusScreen(orderId: 'DD-20260915-0842'),
-        fixedStatus: _status(ko, done: true),
-      );
-      await tester.scrollUntilVisible(
-        find.byType(FilledButton),
-        200,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await capture(tester, output, '03_done');
-    });
-
-    testWidgets('$output 04 history', (tester) async {
-      final orders = [
-        {
-          'id': 'DD-0842',
-          'topic': topic,
-          'tier': 'standard',
-          'createdAt': '2026-09-15 10:24',
-          'lastStatus': 'done',
-        },
-        {
-          'id': 'DD-0839',
-          'topic': ko
-              ? '성수동 친환경 생활용품 시장 조사'
-              : 'Eco-friendly home goods market in Seongsu',
-          'tier': 'light',
-          'createdAt': '2026-09-14 14:08',
-          'lastStatus': 'running',
-        },
-        {
-          'id': 'DD-0837',
-          'topic': ko
-              ? 'B2B SaaS 고객 이탈 요인 분석'
-              : 'B2B SaaS customer churn analysis',
-          'tier': 'deep',
-          'createdAt': '2026-09-13 09:16',
-          'lastStatus': 'queued',
-        },
-      ];
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const HistoryScreen(),
-        preferences: {'orders': jsonEncode(orders)},
-      );
-      await capture(tester, output, '04_history');
-    });
-
-    testWidgets('$output 05 about', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const AboutScreen(),
-      );
-      await capture(tester, output, '05_about');
-    });
-  }
-
-  for (final profile in [_tablet7, _tablet10]) {
-    const ko = true;
-    const topic = '서울 20대 여성 대상 비건 카페 창업 시장성';
-
-    testWidgets('${profile.outputDirectory} 01 order top', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderScreen(),
-      );
-      await tester.enterText(find.byType(TextField).at(0), topic);
-      await tester.enterText(find.byType(TextField).at(2), 'hello@example.com');
-      await tester.pump();
-      await selectReportLanguage(tester, ko);
-      await tester.drag(find.byType(ListView), const Offset(0, 1000));
-      await tester.pumpAndSettle();
-      await capture(tester, profile.outputDirectory, '01_order_top');
-    });
-
-    testWidgets('${profile.outputDirectory} 01 order tiers', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderScreen(),
-      );
-      await tester.enterText(find.byType(TextField).at(0), topic);
-      await tester.enterText(find.byType(TextField).at(2), 'hello@example.com');
-      await tester.pump();
-      await selectReportLanguage(tester, ko);
-      await tester.dragUntilVisible(
-        find.byType(FilledButton),
-        find.byType(ListView),
-        const Offset(0, -300),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-        isNotNull,
-      );
-      await capture(tester, profile.outputDirectory, '01_order_tiers');
-    });
-
-    testWidgets('${profile.outputDirectory} 02 progress', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderStatusScreen(orderId: 'DD-20260915-0841'),
-        fixedStatus: _status(ko, done: false),
-      );
-      await tester.scrollUntilVisible(
-        find.text('완료되면 이메일로도 보내드립니다'),
-        200,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await capture(tester, profile.outputDirectory, '02_progress');
-    });
-
-    testWidgets('${profile.outputDirectory} 03 done', (tester) async {
-      await pumpStoreApp(
-        tester,
-        ko: ko,
-        profile: profile,
-        home: const OrderStatusScreen(orderId: 'DD-20260915-0842'),
-        fixedStatus: _status(ko, done: true),
-      );
-      await tester.scrollUntilVisible(
-        find.byType(FilledButton),
-        200,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await capture(tester, profile.outputDirectory, '03_done');
-    });
+      testWidgets('$tag 07 settings', (tester) async {
+        await pumpApp(
+          tester,
+          profile: profile,
+          ko: ko,
+          home: const RootShell(),
+        );
+        await tester.tap(find.text(ko ? '설정' : 'Settings'));
+        await tester.pump(const Duration(milliseconds: 400));
+        await capture(tester, dir, '07_settings');
+      });
+    }
   }
 }
