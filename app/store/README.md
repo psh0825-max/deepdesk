@@ -5,7 +5,9 @@
 ## 산출물 (`store/out/`)
 - `icon-1024.png`, `icon-512.png` — 스토어 아이콘. `icon-foreground.png`(알파) — Android 적응형 아이콘 전경
 - `feature-1024x500.png` — Play 그래픽 이미지
-- `screenshots/ko|en/*.png` 1080×2160 (휴대전화), `screenshots/tablet7/*.png` 1200×1920, `screenshots/tablet10/*.png` 1600×2560
+- `screenshots/ko|en/*.png` 1080×2160 (휴대전화), `screenshots/tablet7/*.png` 1200×1920, `screenshots/tablet10/*.png` 1600×2560, `screenshots/iphone69/ko|en/*.png` 1320×2868, `screenshots/iphone65/ko/*.png` 1242×2688
+- 각 폴더는 7장: `01_home` 히어로 · `02_pricing` 요금제 · `03_order` 주문/결제 요약 · `04_progress` 진행 · `05_done` 완료 · `06_reports` 내 리포트 · `07_settings` 설정
+- `iap-review/deepdesk_{light,standard,deep}.png` — App Store 인앱 상품 심사용(= iphone69/ko/02_pricing)
 
 ## 재생성
 ```bash
