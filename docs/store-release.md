@@ -82,6 +82,11 @@
    gcloud logging read 'resource.labels.service_name="deepdesk" AND textPayload:"iap confirm"' --project deepdesk-xprize --limit 20 --freshness 1d
    ```
 
+### 2-x. 비공개 테스트 승격 (원클릭)
+내부 트랙에서 검증한 빌드를 비공개(alpha) 트랙에 붙일 때는 재업로드가 아니라 `tracks.update`다:
+`app\promote-closed.cmd` 더블클릭 → `_scripts/play-promote.mjs`가 internal의 최신 versionCode를 alpha에 `completed`로 넣고 커밋한다.
+이후 Play Console › 게시 개요에 "검토 중인 변경사항"으로 올라가며 사전 검사(≤14분) 뒤 자동으로 검토에 들어간다. `--dry-run`으로 어떤 versionCode가 잡히는지 먼저 볼 수 있다.
+
 ## 3. App Store Connect (맥에서)
 
 코드 쪽은 끝났다(2026-09-15): iPhone 전용(`TARGETED_DEVICE_FAMILY = 1`), iOS 15+, 팀 `237X7RZB63`, 번들 `com.lightonpluslab.deepdesk`, 개인정보 매니페스트 연결, `ITSAppUsesNonExemptEncryption=false`.

@@ -1,1 +1,1 @@
-First internal test build — order a research report, pay, follow progress, read the report.
+Redesigned app: home with plans, sample report and FAQ; order summary and checkout; progress timeline; My reports; Settings. Dark mode.
