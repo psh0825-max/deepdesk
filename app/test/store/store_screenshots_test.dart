@@ -55,8 +55,8 @@ class _Profile {
 // Play: phone + 7"/10" tablets. App Store: 6.9" (ko/en) + 6.5" (ko).
 const _profiles = [
   _Profile('phone', Size(1080, 2160), 3, ['ko', 'en']),
-  _Profile('tablet7', Size(1200, 1920), 2, ['ko']),
-  _Profile('tablet10', Size(1600, 2560), 2, ['ko']),
+  _Profile('tablet7', Size(1200, 1920), 2, ['ko', 'en']),
+  _Profile('tablet10', Size(1600, 2560), 2, ['ko', 'en']),
   _Profile('iphone69', Size(1320, 2868), 3, ['ko', 'en']),
   _Profile('iphone65', Size(1242, 2688), 3, ['ko']),
 ];
