@@ -120,7 +120,7 @@ async function resolveOne(source, { timeoutMs, maxBytes }) {
     const contentType = response.headers?.get('content-type') || '';
     const pageTitle = contentType.toLowerCase().includes('text/html') ? titleFromHtml(await readBody(response, maxBytes)) : '';
     const domain = hostOf(finalUrl) || (looksLikeDomain(source.title) ? String(source.title).toLowerCase() : '');
-    return { title: pageTitle || source.title, uri: finalUrl, domain, category: classifyDomain(domain) };
+    return { ...source, title: pageTitle || source.title, uri: finalUrl, domain, category: classifyDomain(domain) };
   } catch {
     return sourceFallback(source);
   }
@@ -150,11 +150,12 @@ export function summarizeSources(sources) {
 }
 
 export function renderSourcesSection(sources) {
-  const summary = summarizeSources(sources);
-  const hasDeadSource = (sources || []).some((source) => source.dead);
+  const list = Array.isArray(sources) ? sources : [];
+  const summary = summarizeSources(list);
+  const hasDeadSource = list.some((source) => source.dead);
   const parts = CATEGORIES.filter(([key]) => summary[key]).map(([key, label]) => `${label} ${summary[key]}`);
-  const groups = CATEGORIES.map(([key, label]) => {
-    const items = (sources || []).filter((source) => source.category === key);
+  const renderGroups = (groupSources) => CATEGORIES.map(([key, label]) => {
+    const items = groupSources.filter((source) => source.category === key);
     if (!items.length) return '';
     const liveItems = items.filter((source) => !source.dead);
     const deadByDomain = new Map();
@@ -177,7 +178,21 @@ export function renderSourcesSection(sources) {
     return `<h4>${label} (${items.length})</h4><ul>${list}</ul>`;
   }).join('\n');
   const expiryNote = hasDeadSource ? ' 일부 링크는 검색 제공자의 보존 기간(약 30일)이 지나 만료되어 도메인만 표시합니다.' : '';
-  return `<div class="sources" data-sources="v2">\n<strong>참고 출처 (${summary.total})</strong>\n<p class="src-summary">${parts.join(' · ')}</p>\n${groups}\n<p class="src-note">출처는 조사 시점의 웹 검색 결과이며 원문 링크로 연결됩니다. 수치와 인용은 원문에서 확인하시길 권합니다.${expiryNote}</p>\n</div>`;
+  const cited = list.filter((source) => Number.isInteger(source.n) && source.n > 0).sort((a, b) => a.n - b.n);
+  if (!cited.length) {
+    const groups = renderGroups(list);
+    return `<div class="sources" data-sources="v2">\n<strong>참고 출처 (${summary.total})</strong>\n<p class="src-summary">${parts.join(' · ')}</p>\n${groups}\n<p class="src-note">출처는 조사 시점의 웹 검색 결과이며 원문 링크로 연결됩니다. 수치와 인용은 원문에서 확인하시길 권합니다.${expiryNote}</p>\n</div>`;
+  }
+
+  const citedItems = cited.map((source) => {
+    const title = source.title || source.domain || source.uri;
+    const domain = source.domain || hostOf(source.uri);
+    const category = CATEGORIES.find(([key]) => key === source.category)?.[1] || '기업·기타';
+    if (source.dead) return `<li id="src-${source.n}"><span class="dead">${esc(title)}</span> <span class="dom">${esc(domain)} · ${category} · 링크 만료</span></li>`;
+    return `<li id="src-${source.n}"><a href="${esc(source.uri)}" target="_blank" rel="noopener">${esc(title)}</a> <span class="dom">${esc(domain)} · ${category}</span></li>`;
+  }).join('\n');
+  const uncited = list.filter((source) => !cited.includes(source));
+  return `<div class="sources" data-sources="v2">\n<strong>참고 출처 (${summary.total})</strong>\n<p class="src-summary">${parts.join(' · ')}</p>\n<h4>인용 출처 (${cited.length})</h4><ol class="cited">\n${citedItems}\n</ol>\n<h4>추가 참고 출처 (${uncited.length})</h4>\n${renderGroups(uncited)}\n<p class="src-note">출처는 조사 시점의 웹 검색 결과이며 원문 링크로 연결됩니다. 수치와 인용은 원문에서 확인하시길 권합니다.${expiryNote}</p>\n</div>`;
 }
 
 function sourcesBlock(html) {
@@ -188,9 +203,14 @@ export function parseSourcesSection(html) {
   const block = sourcesBlock(String(html || ''));
   if (!block) return [];
   const sources = [];
-  const pattern = /<a\b[^>]*\bhref=(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)<\/a>/gi;
-  for (const match of block[0].matchAll(pattern)) {
-    sources.push({ title: decodeHtml(match[3].replace(/<[^>]*>/g, '')).trim(), uri: decodeHtml(match[1] || match[2]) });
+  const itemPattern = /<li\b([^>]*)>([\s\S]*?)<\/li>/gi;
+  for (const item of block[0].matchAll(itemPattern)) {
+    const link = /<a\b[^>]*\bhref=(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)<\/a>/i.exec(item[2]);
+    if (!link) continue;
+    const source = { title: decodeHtml(link[3].replace(/<[^>]*>/g, '')).trim(), uri: decodeHtml(link[1] || link[2]) };
+    const citation = /\bid=(?:"src-(\d+)"|'src-(\d+)')/i.exec(item[1]);
+    if (citation) source.n = Number(citation[1] || citation[2]);
+    sources.push(source);
   }
   return sources;
 }

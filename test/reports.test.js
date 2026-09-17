@@ -32,12 +32,13 @@ before(async () => {
 
 after(() => new Promise((resolve) => server.close(resolve)));
 
-test('web reports retain the agent payment footer', async () => {
+test('web reports replace the agent payment footer', async () => {
   const response = await fetch(`${baseUrl}/reports/abcd1234.html`);
   const html = await response.text();
   assert.equal(response.status, 200);
-  assert.ok(html.includes('basescan'));
-  assert.ok(html.includes(footer));
+  assert.ok(!html.includes('basescan'));
+  assert.ok(!html.includes('원가'));
+  assert.ok(html.includes('<footer>이 리포트는 DeepDesk AI 리서치 에이전트가 작성했습니다.</footer>'));
 });
 
 test('app reports replace the agent payment footer', async () => {
@@ -70,6 +71,26 @@ test('unknown app report remains not found', async () => {
   assert.equal(response.status, 404);
 });
 
+test('sample report alias redirects to the configured report ID', async () => {
+  const response = await fetch(`${baseUrl}/reports/sample.html`, { redirect: 'manual' });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), '/reports/f3949e85.html');
+
+  process.env.SAMPLE_REPORT_ID = 'abcd1234';
+  const { app: configuredApp } = await import(`../server.js?sample=${Date.now()}`);
+  const configuredServer = http.createServer(configuredApp).listen(0);
+  await once(configuredServer, 'listening');
+  try {
+    const configuredUrl = `http://127.0.0.1:${configuredServer.address().port}`;
+    const configured = await fetch(`${configuredUrl}/reports/sample.html`, { redirect: 'manual' });
+    assert.equal(configured.status, 302);
+    assert.equal(configured.headers.get('location'), '/reports/abcd1234.html');
+  } finally {
+    delete process.env.SAMPLE_REPORT_ID;
+    await new Promise((resolve) => configuredServer.close(resolve));
+  }
+});
+
 test('legacy reports respond immediately and can self-heal with resolved sources', async () => {
   const redirect = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/';
   sourceDeps.fetch = async (url) => (String(url).startsWith(redirect)
@@ -77,7 +98,7 @@ test('legacy reports respond immediately and can self-heal with resolved sources
     : { status: 200, headers: new Headers({ 'content-type': 'text/html' }), body: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('<title>정책 원문</title>')); c.close(); } }) });
   const original = await getReport('a1b2c3d4');
   const first = await fetch(`${baseUrl}/reports/a1b2c3d4.html`);
-  assert.equal(await first.text(), original);
+  assert.equal(await first.text(), stripAgentFooter(original));
   await enrichLegacyReport('a1b2c3d4', original);
   const stored = await getReport('a1b2c3d4');
   assert.match(stored, /data-sources="v2"/);

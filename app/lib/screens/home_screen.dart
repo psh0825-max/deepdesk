@@ -34,7 +34,7 @@ class HomeScreen extends ConsumerWidget {
                     context,
                     MaterialPageRoute(
                       builder: (_) => ReportScreen(
-                        reportPath: '/reports/f3949e85.html',
+                        reportPath: '/reports/sample.html',
                         title: s['sampleReport'],
                       ),
                     ),
