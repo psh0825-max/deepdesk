@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import { appendProgress, updateOrder, saveReport } from '../store.js';
 import { pay } from './wallet.js';
 import { officialDataAvailable, kosisLookup, dartFinancials } from './datasources.js';
+import { classifyDomain, hostOf, renderSourcesSection, resolveSources, summarizeSources } from './sources.js';
 
 const TIER_SPEC = {
   light: { subQuestions: 4, label: '라이트', verify: false, twoPart: false, minChars: 9000 },
@@ -303,11 +304,24 @@ ${body.slice(0, 40000)}`,
 
     // 7) 리포트 저장
     const uniqueSources = [...new Map(allSources.map((s) => [s.uri, s])).values()];
-    const html = renderReport({ topic, tier: spec.label, body, sources: uniqueSources, costs, payment, visuals });
+    await appendProgress(id, '출처 정리 — 원문 링크·제목 확인 중');
+    let sources;
+    try {
+      sources = await resolveSources(uniqueSources);
+    } catch {
+      sources = uniqueSources.map((source) => {
+        const domain = hostOf(source.uri);
+        return { ...source, domain, category: classifyDomain(domain) };
+      });
+    }
+    const html = renderReport({ topic, tier: spec.label, body, sources, costs, payment, visuals });
     await saveReport(id, html);
 
     await updateOrder(id, { status: 'done', reportPath: `/reports/${id}.html`, costs });
-    await appendProgress(id, `리포트 완성 — 본문 ${body.length.toLocaleString()}자, 출처 ${uniqueSources.length}건, LLM 토큰 ${costs.llmTokens.toLocaleString()}개`);
+    const summary = summarizeSources(sources);
+    const credibility = [['공공', summary.public], ['연구', summary.research], ['언론', summary.news]]
+      .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join('·');
+    await appendProgress(id, `리포트 완성 — 본문 ${body.length.toLocaleString()}자, 출처 ${sources.length}건${credibility ? `(${credibility})` : ''}, LLM 토큰 ${costs.llmTokens.toLocaleString()}개`);
     return { ok: true, reportPath: `/reports/${id}.html` };
   } catch (err) {
     await updateOrder(id, { status: 'failed', costs });
@@ -564,14 +578,16 @@ th,td{border:1px solid #e1e0d9;padding:8px 10px;text-align:left}
 th{background:#f1f5f9}
 td{font-variant-numeric:tabular-nums}
 .sources{background:#f1f5f9;border-radius:12px;padding:20px 28px;margin-top:3em;font-size:.9rem}
+.src-summary,.src-note{color:#64748b;font-size:.85rem}
+.sources h4{margin:.9em 0 .3em}
+.sources .dead{color:#475569}
+.dom{color:#64748b;font-size:.8rem;margin-left:6px}
 footer{margin-top:4em;color:#94a3b8;font-size:.85rem;border-top:1px solid #e2e8f0;padding-top:16px}
 @media print{.viz,.chart{break-inside:avoid}}
 </style></head><body>
 <div class="meta">DeepDesk 리서치 리포트 · ${esc(tier)} 티어 · ${new Date().toISOString().slice(0, 10)}</div>
 ${bodyHtml}
-<div class="sources"><strong>참고 출처 (${sources.length})</strong><ul>
-${sources.map((s) => `<li><a href="${esc(s.uri)}" target="_blank" rel="noopener">${esc(s.title)}</a></li>`).join('\n')}
-</ul></div>
+${renderSourcesSection(sources)}
 <footer>이 리포트는 DeepDesk AI 리서치 에이전트가 작성했습니다. 리서치 원가: LLM 토큰 ${costs.llmTokens.toLocaleString()}개 · 유료 데이터 $${costs.paidApiUsd.toFixed(2)}${payment?.explorerUrl ? ` (<a href="${esc(payment.explorerUrl)}" target="_blank" rel="noopener">에이전트 결제 트랜잭션 보기</a>)` : ''}</footer>
 </body></html>`;
 }

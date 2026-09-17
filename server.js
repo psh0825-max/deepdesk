@@ -3,11 +3,12 @@ import express from 'express';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { createOrder, getOrder, listOrders, updateOrder, markPaidOnce, getReport, appendProgress, claimIapToken } from './src/store.js';
+import { createOrder, getOrder, listOrders, updateOrder, markPaidOnce, getReport, saveReport, appendProgress, claimIapToken } from './src/store.js';
 import { enqueueRun, queueStats } from './src/queue.js';
 import { getAddress, getLedger } from './src/agent/wallet.js';
 import { sendPaidEmail, sendOwnerAlert } from './src/mailer.js';
 import { PRODUCT_TO_TIER, tierForProduct, verifyAndroidPurchase, verifyApplePurchase } from './src/iap.js';
+import { needsSourceEnrichment, parseSourcesSection, renderSourcesSection, replaceSourcesSection, resolveSources } from './src/agent/sources.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -22,6 +23,24 @@ function stripAgentFooter(html) {
   );
 }
 
+const enrichingReports = new Set();
+
+async function enrichLegacyReport(id, html) {
+  const sources = await resolveSources(parseSourcesSection(html));
+  const enriched = replaceSourcesSection(html, renderSourcesSection(sources));
+  await saveReport(id, enriched);
+  console.log(`report enriched ${id} sources=${sources.length}`);
+  return enriched;
+}
+
+function enrichAfterSend(id, html) {
+  if (!needsSourceEnrichment(html) || enrichingReports.has(id)) return;
+  enrichingReports.add(id);
+  enrichLegacyReport(id, html).catch((error) => {
+    console.error(`report enrich failed ${id}: ${error.message}`);
+  }).finally(() => enrichingReports.delete(id));
+}
+
 // 리포트는 저장 계층(Firestore/파일)에서 서빙 — 재배포에도 링크가 살아있다
 app.get('/reports/:file', async (req, res) => {
   const id = String(req.params.file).replace(/\.html$/, '');
@@ -30,6 +49,7 @@ app.get('/reports/:file', async (req, res) => {
   if (!html) return res.status(404).send('리포트를 찾을 수 없습니다');
   const isApp = req.query.app === '1' || req.get('x-deepdesk-client') === 'app';
   res.type('html').send(isApp ? stripAgentFooter(html) : html);
+  enrichAfterSend(id, html);
 });
 
 // 런칭 프로모션가 (krwOrig/usdOrig = 정가, 랜딩에 병기)
@@ -344,4 +364,4 @@ if (process.env.DEEPDESK_NO_LISTEN !== '1') {
   });
 }
 
-export { app, stripAgentFooter };
+export { app, enrichLegacyReport, stripAgentFooter };
