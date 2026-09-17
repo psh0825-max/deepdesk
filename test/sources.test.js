@@ -171,3 +171,20 @@ test('renderSourcesSection collapses expired sources by domain within each categ
   assert.match(publicSection, /<span class="dead">korea\.kr<\/span> <span class="dom">2건 · 링크 만료<\/span>/);
   assert.match(publicSection, /<span class="dead">mss\.go\.kr<\/span> <span class="dom">링크 만료<\/span>/);
 });
+
+test('renderSourcesSection separates cited sources while preserving the legacy layout without citations', () => {
+  const sources = [
+    { id: 7, n: 2, title: '두 번째', uri: 'https://mk.co.kr/a', domain: 'mk.co.kr', category: 'news' },
+    { id: 3, n: 1, title: '첫 번째', uri: 'https://korea.kr/a', domain: 'korea.kr', category: 'public' },
+    { id: 9, title: '추가', uri: 'https://kdi.re.kr/a', domain: 'kdi.re.kr', category: 'research' },
+  ];
+  const cited = renderSourcesSection(sources);
+  assert.match(cited, /<h4>인용 출처 \(2\)<\/h4><ol class="cited">/);
+  assert.ok(cited.indexOf('id="src-1"') < cited.indexOf('id="src-2"'));
+  assert.match(cited, /<h4>추가 참고 출처 \(1\)<\/h4>/);
+  assert.match(cited, /<h4>연구·학술 \(1\)<\/h4>/);
+  assert.deepEqual(parseSourcesSection(cited).map((source) => source.n || null), [1, 2, null]);
+
+  const legacyLayout = renderSourcesSection(sources.map(({ n, ...source }) => source));
+  assert.doesNotMatch(legacyLayout, /class="cited"|인용 출처|추가 참고 출처/);
+});

@@ -6,6 +6,7 @@ import { appendProgress, updateOrder, saveReport } from '../store.js';
 import { pay } from './wallet.js';
 import { officialDataAvailable, kosisLookup, dartFinancials } from './datasources.js';
 import { classifyDomain, hostOf, renderSourcesSection, resolveSources, summarizeSources } from './sources.js';
+import { annotateWithSupports, numberCitations, renderCitationPlaceholders } from './citations.js';
 
 const TIER_SPEC = {
   light: { subQuestions: 4, label: '라이트', verify: false, twoPart: false, minChars: 9000 },
@@ -21,6 +22,11 @@ const ANALYST_RULES = `당신은 톱티어 전략컨설팅펌의 시니어 리�
 - 사실(확인된 데이터) / 추정(계산·해석) / 전망(예측)을 구분해 서술한다.
 - 일반론과 미사여구를 금지한다. 회사명·제품명·금액·날짜 등 구체 정보만 가치가 있다.
 - 확인 불가한 내용은 "확인 필요"로 표시한다. 수치를 지어내지 않는다.`;
+
+export const RESEARCH_PROMPT_RULES = `- 출처 우선순위: ① 정부·공공기관·통계·법령·공시(1차 자료) ② 학술·연구기관 ③ 주요 언론 ④ 기업 공식 자료. 개인 블로그·커뮤니티·마케팅 페이지는 수치의 근거로 삼지 말고, 1차 자료가 없을 때만 보조로 인용하며 그 사실을 명시한다.
+- 같은 수치가 1차 자료와 2차 자료에 모두 있으면 1차 자료의 값을 쓴다.`;
+
+export const CITATION_RULE = '인용 규칙: 조사 결과의 사실·수치 뒤에는 출처 표식 [S숫자]가 붙어 있다. 리포트에서 그 사실·수치를 쓰는 문장 끝(마침표 뒤)에 해당 표식을 그대로 옮겨 붙인다(예: … 5.3조 원으로 집계됐다. [S12][S40]). 표식을 새로 만들거나 번호를 바꾸지 말고, 표식이 없는 내용은 표식 없이 쓴다. 표 셀 안에도 표식을 붙일 수 있다.';
 
 function client() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -62,13 +68,14 @@ async function generate(ai, { model, prompt, useSearch, costs, maxTokens }) {
     },
   }));
   addUsage(costs, response);
-  const sources = [];
   const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const supports = response.candidates?.[0]?.groundingMetadata?.groundingSupports || [];
+  const sources = [];
   for (const c of chunks) {
     if (c.web?.uri) sources.push({ title: c.web.title || c.web.uri, uri: c.web.uri });
   }
   if (!response.text) throw new Error('모델 응답이 비어 있습니다');
-  return { text: response.text, sources };
+  return { text: response.text, sources, supports, chunks };
 }
 
 export async function runResearch(order) {
@@ -104,7 +111,17 @@ ${brief ? `클라이언트 요구사항: ${brief}` : ''}`,
 
     // 2) 조사 (flash × N, 검색 그라운딩)
     const findings = [];
-    const allSources = [];
+    const sourceIdByUri = new Map();
+    const registry = [];
+    const registerSource = ({ title, uri }) => {
+      if (!uri) return undefined;
+      const normalizedUri = String(uri);
+      if (sourceIdByUri.has(normalizedUri)) return sourceIdByUri.get(normalizedUri);
+      const id = registry.length + 1;
+      sourceIdByUri.set(normalizedUri, id);
+      registry.push({ id, title: title || normalizedUri, uri: normalizedUri });
+      return id;
+    };
     for (let i = 0; i < subQuestions.length; i++) {
       const q = subQuestions[i];
       const r = await generate(ai, {
@@ -116,12 +133,18 @@ ${brief ? `클라이언트 요구사항: ${brief}` : ''}`,
 - 2024~2026년 최신 자료를 우선한다. 수치마다 연도를 명시한다.
 - 구체적 기업명·제품명·금액·통계를 담는다.
 - 통설과 반대되는 근거나 리스크 신호도 찾아 포함한다.
+${RESEARCH_PROMPT_RULES}
 
 질문: ${q}`,
       });
-      findings.push({ question: q, answer: r.text, sources: r.sources });
-      allSources.push(...r.sources);
-      await appendProgress(id, `세부 조사 ${i + 1}/${subQuestions.length} 완료 (출처 ${r.sources.length}건)`);
+      const chunkSourceIds = (r.chunks || []).map((chunk) => (
+        chunk?.web?.uri ? registerSource({ title: chunk.web.title || chunk.web.uri, uri: chunk.web.uri }) : undefined
+      ));
+      const idOf = (chunkIndex) => chunkSourceIds[chunkIndex];
+      const answer = annotateWithSupports(r.text, r.supports, idOf);
+      const markerCount = (answer.match(/\[S\d+\]/g) || []).length - (r.text.match(/\[S\d+\]/g) || []).length;
+      findings.push({ question: q, answer });
+      await appendProgress(id, `세부 조사 ${i + 1}/${subQuestions.length} 완료 (출처 ${registry.length}건, 근거 표식 ${markerCount}개)`);
       await updateOrder(id, { costs });
     }
 
@@ -149,11 +172,12 @@ ${brief ? `클라이언트 요구사항: ${brief}` : ''}`,
         const hits = results.filter(Boolean);
         if (hits.length) {
           officialBlock = '\n\n## 공식 원천 데이터 (반드시 우선 사용하고 출처를 명시할 것)\n' + hits.map((h) => {
-            allSources.push({ title: `${h.source} — ${h.table || h.corp}`, uri: h.url });
+            const sourceId = registerSource({ title: `${h.source} — ${h.table || h.corp}`, uri: h.url });
             const rows = (h.rows || []).slice(0, 25).map((r) =>
               h.corp ? `- ${r.account}: ${r.amount}${r.unit} (${h.year}년, 연결/별도 공시 기준)` : `- ${r.item} [${r.period}]: ${r.value}${r.unit}`
             ).join('\n');
-            return `### ${h.source}: ${h.table || `${h.corp} 주요 재무 (${h.year})`}\n${rows}`;
+            const marker = sourceId ? ` [S${sourceId}]` : '';
+            return `### ${h.source}: ${h.table || `${h.corp} 주요 재무 (${h.year})`}${marker}\n${rows}`;
           }).join('\n\n');
           await appendProgress(id, `공식 데이터 확보 — KOSIS ${kosisKeywords.length ? '조회' : '건너뜀'}, DART ${dartCompanies.length ? '조회' : '건너뜀'} (원천 ${hits.length}건)`);
         }
@@ -192,6 +216,7 @@ ${brief ? `클라이언트 요구사항: ${brief}` : ''}
 ${findingsBlock}${officialBlock}
 
 작성 규칙: ${lang}, Markdown. 조사 결과에 없는 수치는 만들지 않는다. 비교·나열 데이터는 반드시 Markdown 표(|)로 정리한다. 문장은 단정적으로, 근거는 병기한다.
+${CITATION_RULE}
 분량 규칙: 이 리포트는 유료 상품이다. 조사 결과에 담긴 사실·수치·사례를 최대한 활용해 각 소제목마다 3문단 이상으로 충실히 서술하라. 요약체로 축약하지 말고, 배경 맥락과 해석을 함께 담아라. 미사여구로 분량을 채우는 것은 금지한다.`;
 
     let body;
@@ -264,6 +289,7 @@ ${partA.text.slice(0, 4000)}
 2) 수치 모순·단위 오류 → 조사 결과 기준으로 수정
 3) 중복 문단 → 통합
 4) 표·소제목 구조 유지, 분량은 유지하거나 보강 (절대 요약하지 말 것)
+5) 출처 표식 [S숫자]는 그대로 유지한다. 근거 없는 문장에 표식을 새로 붙이지 마라.
 수정이 반영된 완성본 전체를 Markdown으로만 출력하라. 다른 말은 하지 마라.
 
 [조사 결과]
@@ -294,7 +320,7 @@ ${body}`,
 - 차트로 만들 수치가 부족하면 개수를 줄여라. JSON 외 텍스트 출력 금지.
 
 리포트:
-${body.slice(0, 40000)}`,
+${body.replace(/\s?\[S\d+\]/g, '').slice(0, 40000)}`,
       });
       visuals = parseVisuals(vres.text);
       await appendProgress(id, `시각화 생성 — 핵심지표 ${visuals?.stats?.length || 0}개, 차트 ${visuals?.charts?.length || 0}개`);
@@ -303,13 +329,12 @@ ${body.slice(0, 40000)}`,
     }
 
     // 7) 리포트 저장
-    const uniqueSources = [...new Map(allSources.map((s) => [s.uri, s])).values()];
     await appendProgress(id, '출처 정리 — 원문 링크·제목 확인 중');
     let sources;
     try {
-      sources = await resolveSources(uniqueSources);
+      sources = await resolveSources(registry);
     } catch {
-      sources = uniqueSources.map((source) => {
+      sources = registry.map((source) => {
         const domain = hostOf(source.uri);
         return { ...source, domain, category: classifyDomain(domain) };
       });
@@ -319,9 +344,10 @@ ${body.slice(0, 40000)}`,
 
     await updateOrder(id, { status: 'done', reportPath: `/reports/${id}.html`, costs });
     const summary = summarizeSources(sources);
-    const credibility = [['공공', summary.public], ['연구', summary.research], ['언론', summary.news]]
-      .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join('·');
-    await appendProgress(id, `리포트 완성 — 본문 ${body.length.toLocaleString()}자, 출처 ${sources.length}건${credibility ? `(${credibility})` : ''}, LLM 토큰 ${costs.llmTokens.toLocaleString()}개`);
+    const credibility = `공공 ${summary.public}·연구 ${summary.research}·언론 ${summary.news}`;
+    const footnoteCount = (html.match(/<sup class="cite">/g) || []).length;
+    const citedCount = (html.match(/<li id="src-\d+">/g) || []).length;
+    await appendProgress(id, `리포트 완성 — 본문 ${body.length.toLocaleString()}자, 각주 ${footnoteCount}개·인용 출처 ${citedCount}건, 출처 총 ${sources.length}건(${credibility}), LLM 토큰 ${costs.llmTokens.toLocaleString()}개`);
     return { ok: true, reportPath: `/reports/${id}.html` };
   } catch (err) {
     await updateOrder(id, { status: 'failed', costs });
@@ -542,8 +568,25 @@ function renderVisualBlock({ stats, charts }) {
   return html + '</section>';
 }
 
-function renderReport({ topic, tier, body, sources, costs, payment, visuals }) {
-  let bodyHtml = mdToHtml(body);
+function prepareCitations(body, sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  const validIds = new Set(list.map((source) => source.id));
+  const citation = numberCitations(body, validIds);
+  if (!citation.order.length) return { ...citation, sources: list };
+  const citedIds = new Set(citation.order);
+  const byId = new Map(list.map((source) => [source.id, source]));
+  return {
+    ...citation,
+    sources: [
+      ...citation.order.map((id, index) => ({ ...byId.get(id), n: index + 1 })),
+      ...list.filter((source) => !citedIds.has(source.id)),
+    ],
+  };
+}
+
+export function renderReport({ topic, tier, body, sources, costs, payment, visuals }) {
+  const prepared = prepareCitations(body, sources);
+  let bodyHtml = renderCitationPlaceholders(mdToHtml(prepared.body));
   if (visuals) {
     const vh = renderVisualBlock(visuals);
     const m = bodyHtml.match(/<\/h[12]>/);
@@ -582,12 +625,13 @@ td{font-variant-numeric:tabular-nums}
 .sources h4{margin:.9em 0 .3em}
 .sources .dead{color:#475569}
 .dom{color:#64748b;font-size:.8rem;margin-left:6px}
+sup.cite{font-size:.7em;line-height:0;margin-left:2px} sup.cite a{color:#2563eb;text-decoration:none} sup.cite+sup.cite{margin-left:1px} .sources li:target{background:#fef3c7}
 footer{margin-top:4em;color:#94a3b8;font-size:.85rem;border-top:1px solid #e2e8f0;padding-top:16px}
 @media print{.viz,.chart{break-inside:avoid}}
 </style></head><body>
 <div class="meta">DeepDesk 리서치 리포트 · ${esc(tier)} 티어 · ${new Date().toISOString().slice(0, 10)}</div>
 ${bodyHtml}
-${renderSourcesSection(sources)}
-<footer>이 리포트는 DeepDesk AI 리서치 에이전트가 작성했습니다. 리서치 원가: LLM 토큰 ${costs.llmTokens.toLocaleString()}개 · 유료 데이터 $${costs.paidApiUsd.toFixed(2)}${payment?.explorerUrl ? ` (<a href="${esc(payment.explorerUrl)}" target="_blank" rel="noopener">에이전트 결제 트랜잭션 보기</a>)` : ''}</footer>
+${renderSourcesSection(prepared.sources)}
+<footer>이 리포트는 DeepDesk AI 리서치 에이전트가 작성했습니다.</footer>
 </body></html>`;
 }

@@ -16,6 +16,11 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+const DEFAULT_SAMPLE_REPORT_ID = 'f3949e85';
+const SAMPLE_REPORT_ID = /^[0-9a-f-]{4,40}$/i.test(process.env.SAMPLE_REPORT_ID || '')
+  ? process.env.SAMPLE_REPORT_ID
+  : DEFAULT_SAMPLE_REPORT_ID;
+
 function stripAgentFooter(html) {
   return html.replace(
     /<footer>[\s\S]*?<\/footer>/,
@@ -42,13 +47,14 @@ function enrichAfterSend(id, html) {
 }
 
 // 리포트는 저장 계층(Firestore/파일)에서 서빙 — 재배포에도 링크가 살아있다
+app.get('/reports/sample.html', (req, res) => res.redirect(302, `/reports/${SAMPLE_REPORT_ID}.html`));
+
 app.get('/reports/:file', async (req, res) => {
   const id = String(req.params.file).replace(/\.html$/, '');
   if (!/^[0-9a-f-]{4,40}$/i.test(id)) return res.status(400).send('bad id');
   const html = await getReport(id);
   if (!html) return res.status(404).send('리포트를 찾을 수 없습니다');
-  const isApp = req.query.app === '1' || req.get('x-deepdesk-client') === 'app';
-  res.type('html').send(isApp ? stripAgentFooter(html) : html);
+  res.type('html').send(stripAgentFooter(html));
   enrichAfterSend(id, html);
 });
 
