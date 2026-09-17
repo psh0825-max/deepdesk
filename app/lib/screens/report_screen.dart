@@ -6,6 +6,12 @@ import '../core/config.dart';
 import '../l10n/strings.dart';
 import '../widgets/error_view.dart';
 
+({String view, String share}) reportUrls(String baseUrl, String reportPath) {
+  final share = '$baseUrl$reportPath';
+  final separator = reportPath.contains('?') ? '&' : '?';
+  return (view: '$share${separator}app=1', share: share);
+}
+
 class ReportScreen extends StatefulWidget {
   const ReportScreen({
     super.key,
@@ -27,7 +33,9 @@ class _ReportScreenState extends State<ReportScreen> {
   var _loading = true;
   var _error = false;
 
-  String get _url => '${AppConfig.baseUrl}${widget.reportPath}';
+  String get _viewUrl => reportUrls(AppConfig.baseUrl, widget.reportPath).view;
+  String get _shareUrl =>
+      reportUrls(AppConfig.baseUrl, widget.reportPath).share;
 
   @override
   void initState() {
@@ -48,7 +56,7 @@ class _ReportScreenState extends State<ReportScreen> {
           },
         ),
       )
-      ..loadRequest(Uri.parse(_url));
+      ..loadRequest(Uri.parse(_viewUrl));
   }
 
   @override
@@ -72,7 +80,7 @@ class _ReportScreenState extends State<ReportScreen> {
             tooltip: s['openBrowser'],
             icon: const Icon(Icons.open_in_browser_rounded),
             onPressed: () => launchUrl(
-              Uri.parse(_url),
+              Uri.parse(_shareUrl),
               mode: LaunchMode.externalApplication,
             ),
           ),
@@ -108,7 +116,7 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   Future<void> _copy(BuildContext context, AppStrings s) async {
-    await Clipboard.setData(ClipboardData(text: _url));
+    await Clipboard.setData(ClipboardData(text: _shareUrl));
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,
@@ -121,6 +129,6 @@ class _ReportScreenState extends State<ReportScreen> {
       _error = false;
       _loading = true;
     });
-    _controller.loadRequest(Uri.parse(_url));
+    _controller.loadRequest(Uri.parse(_viewUrl));
   }
 }

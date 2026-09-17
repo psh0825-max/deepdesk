@@ -15,13 +15,21 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+function stripAgentFooter(html) {
+  return html.replace(
+    /<footer>[\s\S]*?<\/footer>/,
+    '<footer>이 리포트는 DeepDesk AI 리서치 에이전트가 작성했습니다.</footer>',
+  );
+}
+
 // 리포트는 저장 계층(Firestore/파일)에서 서빙 — 재배포에도 링크가 살아있다
 app.get('/reports/:file', async (req, res) => {
   const id = String(req.params.file).replace(/\.html$/, '');
   if (!/^[0-9a-f-]{4,40}$/i.test(id)) return res.status(400).send('bad id');
   const html = await getReport(id);
   if (!html) return res.status(404).send('리포트를 찾을 수 없습니다');
-  res.type('html').send(html);
+  const isApp = req.query.app === '1' || req.get('x-deepdesk-client') === 'app';
+  res.type('html').send(isApp ? stripAgentFooter(html) : html);
 });
 
 // 런칭 프로모션가 (krwOrig/usdOrig = 정가, 랜딩에 병기)
@@ -336,4 +344,4 @@ if (process.env.DEEPDESK_NO_LISTEN !== '1') {
   });
 }
 
-export { app };
+export { app, stripAgentFooter };
